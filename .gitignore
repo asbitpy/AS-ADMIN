@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.log
+# Config de herramientas local: guarda rutas de esta máquina
+.claude/

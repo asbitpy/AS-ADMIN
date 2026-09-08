@@ -1,0 +1,55 @@
+require('dotenv').config();
+const express = require('express');
+const { handleIncomingMessage } = require('./lib/messageHandler');
+const { procesarRecordatorios } = require('./lib/recordatorios');
+
+const app = express();
+app.use(express.json());
+
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+
+// Meta llama a este GET una sola vez, al configurar el webhook en su panel,
+// para confirmar que el servidor es tuyo.
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('Webhook verificado ✅');
+    return res.status(200).send(challenge);
+  }
+  return res.sendStatus(403);
+});
+
+// Acá llegan los mensajes reales de los clientes por WhatsApp.
+app.post('/webhook', async (req, res) => {
+  // Respondemos 200 de inmediato: si Meta no recibe respuesta rápida,
+  // reintenta el envío. La deduplicación por wa_message_id nos protege
+  // igual si un reintento llega a colarse.
+  res.sendStatus(200);
+
+  try {
+    await handleIncomingMessage(req.body);
+  } catch (err) {
+    console.error('Error procesando mensaje entrante:', err);
+  }
+});
+
+app.get('/', (_req, res) => res.send('AS ADMIN backend funcionando ✅'));
+
+// Procesador de recordatorios: revisa cada 5 minutos si hay turnos que
+// necesitan el recordatorio de 24hs o el del mismo día.
+// NOTA: para producción con varios servidores, mover esto a un cron job
+// externo (ej. Supabase Scheduled Functions o un cron de Railway) para
+// que no corra duplicado en cada instancia.
+if (process.env.RECORDATORIOS_ACTIVOS !== 'false') {
+  setInterval(() => {
+    procesarRecordatorios().catch((err) =>
+      console.error('Error en procesador de recordatorios:', err)
+    );
+  }, 5 * 60 * 1000);
+}
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`AS ADMIN backend escuchando en puerto ${PORT}`));

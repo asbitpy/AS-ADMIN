@@ -1,0 +1,16 @@
+{
+  "name": "as-admin-backend",
+  "version": "0.2.0",
+  "description": "Backend del bot de WhatsApp de AS ADMIN (AS BIT)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0"
+  }
+}
