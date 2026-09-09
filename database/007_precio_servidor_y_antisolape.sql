@@ -196,6 +196,32 @@ update turnos set duracion_minutos = 30 where duracion_minutos is null;
 alter table turnos alter column duracion_minutos set default 30;
 alter table turnos alter column duracion_minutos set not null;
 
+-- La hora de fin se guarda como columna, no se calcula dentro de la
+-- restricción. Motivo: en Postgres, "timestamptz + interval" es STABLE y
+-- no IMMUTABLE (un intervalo puede traer días o meses, que dependen del
+-- huso horario), y un índice solo admite expresiones inmutables. Con la
+-- hora de fin ya guardada, la restricción compara dos columnas y listo.
+alter table turnos add column if not exists fecha_hora_fin timestamptz;
+
+create or replace function fn_turno_calcula_fin()
+returns trigger as $$
+begin
+  new.fecha_hora_fin := new.fecha_hora + make_interval(mins => new.duracion_minutos);
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_turno_calcula_fin on turnos;
+create trigger trg_turno_calcula_fin
+  before insert or update of fecha_hora, duracion_minutos on turnos
+  for each row execute function fn_turno_calcula_fin();
+
+update turnos
+   set fecha_hora_fin = fecha_hora + make_interval(mins => duracion_minutos)
+ where fecha_hora_fin is null;
+
+alter table turnos alter column fecha_hora_fin set not null;
+
 -- Un negocio sin profesionales cargados tiene profesional_id null en
 -- todos sus turnos, y en una restricción de exclusión dos NULL nunca
 -- "chocan" entre sí. El coalesce los agrupa bajo un mismo valor para
@@ -206,7 +232,7 @@ alter table turnos add constraint turnos_sin_solape
   exclude using gist (
     negocio_id with =,
     (coalesce(profesional_id, '00000000-0000-0000-0000-000000000000'::uuid)) with =,
-    tstzrange(fecha_hora, fecha_hora + make_interval(mins => duracion_minutos)) with &&
+    tstzrange(fecha_hora, fecha_hora_fin) with &&
   )
   where (estado in ('pendiente', 'confirmado', 'reprogramado'));
 
@@ -221,7 +247,7 @@ alter table turnos add constraint turnos_sin_solape
 --    and a.id < b.id
 --    and a.estado in ('pendiente','confirmado','reprogramado')
 --    and b.estado in ('pendiente','confirmado','reprogramado')
---    and tstzrange(a.fecha_hora, a.fecha_hora + make_interval(mins => a.duracion_minutos))
---     && tstzrange(b.fecha_hora, b.fecha_hora + make_interval(mins => b.duracion_minutos));
+--    and tstzrange(a.fecha_hora, a.fecha_hora_fin)
+--     && tstzrange(b.fecha_hora, b.fecha_hora_fin);
 --
 -- Cancelá o moví uno de cada par y volvé a correr la migración.
