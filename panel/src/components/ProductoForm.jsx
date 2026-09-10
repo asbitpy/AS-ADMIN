@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, X, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { subirFotoProducto } from '../lib/storage';
@@ -32,6 +32,13 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
   const [fotoPreview, setFotoPreview] = useState(productoExistente?.foto_url || null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
+  // "disabled={guardando}" depende de que React vuelva a pintar la
+  // pantalla, y entre un clic y el siguiente hay una ventana chica donde
+  // el botón sigue habilitado. Un doble clic (o un toque impaciente
+  // mientras la conexión tarda) puede entrar dos veces al mismo tiempo y
+  // crear el producto duplicado. Este ref no depende del repintado: se
+  // lee y se escribe en el mismo instante en que entra el clic.
+  const enviandoRef = useRef(false);
 
   const esEdicion = Boolean(productoExistente);
 
@@ -100,6 +107,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (enviandoRef.current) return; // ya se está guardando: ignora el segundo clic
     setError(null);
 
     if (!datos.nombre.trim()) {
@@ -115,6 +123,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       return;
     }
 
+    enviandoRef.current = true;
     setGuardando(true);
     try {
       const payload = {
@@ -185,6 +194,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       console.error(err);
       setError('No se pudo guardar. Probá de nuevo en un momento.');
     } finally {
+      enviandoRef.current = false;
       setGuardando(false);
     }
   }

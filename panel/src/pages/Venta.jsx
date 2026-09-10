@@ -29,6 +29,12 @@ export default function Venta() {
 
   const searchRef = useRef(null);
   const telefonoRef = useRef(null);
+  // Mismo motivo que ProductoForm: el estado 'cobrando' no alcanza a
+  // desactivar el botón antes de que un segundo clic (o un F2 repetido)
+  // entre — acá el costo de ese descuido es cobrar dos veces la misma
+  // venta y descontar el doble de stock. Este ref corta en seco, sin
+  // esperar al repintado.
+  const cobrandoRef = useRef(false);
 
   useEffect(() => {
     if (!negocio) return;
@@ -146,7 +152,8 @@ export default function Venta() {
   }
 
   async function cobrar() {
-    if (carrito.length === 0 || cobrando) return;
+    if (carrito.length === 0 || cobrandoRef.current) return;
+    cobrandoRef.current = true;
     setError(null);
     setCobrando(true);
 
@@ -194,6 +201,7 @@ export default function Venta() {
           : 'No se pudo registrar la venta. Probá de nuevo.'
       );
     } finally {
+      cobrandoRef.current = false;
       setCobrando(false);
     }
   }
