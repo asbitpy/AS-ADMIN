@@ -9,6 +9,7 @@ import Ventas from './pages/Ventas';
 import Productos from './pages/Productos';
 import Clientes from './pages/Clientes';
 import Equipo from './pages/Equipo';
+import Finanzas from './pages/Finanzas';
 import Configuracion from './pages/Configuracion';
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
         {tieneRetail && <Route path="/productos" element={<Productos />} />}
         {/* Clientes es del núcleo común: sirve tanto a servicio como a retail */}
         <Route path="/clientes" element={<Clientes />} />
+        {puedeConfigurar && <Route path="/finanzas" element={<Finanzas />} />}
         {esDueno && <Route path="/equipo" element={<Equipo />} />}
         {puedeConfigurar && <Route path="/configuracion" element={<Configuracion />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

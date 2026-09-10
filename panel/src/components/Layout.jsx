@@ -9,6 +9,7 @@ import {
   Users,
   UserCog,
   LogOut,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -37,6 +38,7 @@ export default function Layout() {
     tieneRetail && { to: '/productos', label: 'Productos', icon: Package },
     // Clientes es del núcleo común: sirve tanto a servicio como a retail
     { to: '/clientes', label: 'Clientes', icon: Users },
+    puedeConfigurar && { to: '/finanzas', label: 'Finanzas', icon: Wallet },
     esDueno && { to: '/equipo', label: 'Equipo', icon: UserCog },
     puedeConfigurar && { to: '/configuracion', label: 'Config', icon: Settings },
   ].filter(Boolean);
