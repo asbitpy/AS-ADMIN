@@ -72,6 +72,7 @@ Pendiente para cerrar la Fase 1:
 - [ ] Editar horarios de atención desde la UI (hoy se edita en Supabase directo)
 - [ ] Selector de profesional para clínicas con más de uno
 - [ ] Dar de alta el usuario del dueño en Supabase Auth y vincularlo a su negocio (paso manual, documentado en el README del panel)
+- [ ] Probar el flujo de empleado de punta a punta: crear una cuenta de prueba en Supabase Auth, agregarla desde Equipo con un rol, loguearse con esa cuenta y confirmar qué ve (migración 011 ya corrida y verificada — falta este último paso de prueba real)
 
 ## 5. Desarrollo — Fase 2 (Finanzas simples)
 
