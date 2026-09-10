@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, AlertTriangle } from 'lucide-react';
+import { Plus, AlertTriangle, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import ProductoCard from '../components/ProductoCard';
 import ProductoForm from '../components/ProductoForm';
+import ImportarProductos from '../components/ImportarProductos';
 import MetricPill from '../components/MetricPill';
 
 // "Gs. 41.685.000" no entra en un tercio de pantalla ni achicando la
@@ -22,7 +23,7 @@ export default function Productos() {
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
-  const [vista, setVista] = useState('lista'); // 'lista' | 'form'
+  const [vista, setVista] = useState('lista'); // 'lista' | 'form' | 'importar'
   const [productoEditando, setProductoEditando] = useState(null);
 
   useEffect(() => {
@@ -75,19 +76,39 @@ export default function Productos() {
     );
   }
 
+  if (vista === 'importar') {
+    return (
+      <ImportarProductos
+        onCancelar={() => setVista('lista')}
+        onImportado={() => {
+          setVista('lista');
+          cargar();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="font-display text-xl text-ink">Productos</p>
-        <button
-          onClick={() => {
-            setProductoEditando(null);
-            setVista('form');
-          }}
-          className="flex items-center gap-1 rounded-full bg-accent px-3 py-2 text-xs font-medium text-white active:scale-[0.98]"
-        >
-          <Plus size={16} /> Agregar
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setVista('importar')}
+            className="flex items-center gap-1 rounded-full bg-accent-soft px-3 py-2 text-xs font-medium text-accent active:scale-[0.98]"
+          >
+            <Upload size={16} /> Importar
+          </button>
+          <button
+            onClick={() => {
+              setProductoEditando(null);
+              setVista('form');
+            }}
+            className="flex items-center gap-1 rounded-full bg-accent px-3 py-2 text-xs font-medium text-white active:scale-[0.98]"
+          >
+            <Plus size={16} /> Agregar
+          </button>
+        </div>
       </div>
 
       {!cargando && productos.length > 0 && (
