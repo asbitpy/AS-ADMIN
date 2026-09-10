@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, X, Camera } from 'lucide-react';
+import { Plus, X, Camera, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { subirFotoProducto } from '../lib/storage';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +31,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
   const [foto, setFoto] = useState(null);
   const [fotoPreview, setFotoPreview] = useState(productoExistente?.foto_url || null);
   const [guardando, setGuardando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
   const [error, setError] = useState(null);
   // "disabled={guardando}" depende de que React vuelva a pintar la
   // pantalla, y entre un clic y el siguiente hay una ventana chica donde
@@ -197,6 +198,24 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       enviandoRef.current = false;
       setGuardando(false);
     }
+  }
+
+  async function eliminarProducto() {
+    if (!productoExistente) return;
+    if (!window.confirm(`¿Eliminar "${productoExistente.nombre}"? No se borra el historial de ventas ya hechas con este producto — solo deja de aparecer en el catálogo.`)) {
+      return;
+    }
+    setEliminando(true);
+    const { error: errDelete } = await supabase
+      .from('productos')
+      .update({ activo: false })
+      .eq('id', productoExistente.id);
+    setEliminando(false);
+    if (errDelete) {
+      setError('No se pudo eliminar. Probá de nuevo en un momento.');
+      return;
+    }
+    onGuardado();
   }
 
   return (
@@ -421,6 +440,17 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       >
         {guardando ? 'Guardando…' : esEdicion ? 'Guardar cambios' : 'Agregar producto'}
       </button>
+
+      {esEdicion && (
+        <button
+          type="button"
+          onClick={eliminarProducto}
+          disabled={eliminando}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger disabled:opacity-50"
+        >
+          <Trash2 size={16} /> {eliminando ? 'Eliminando…' : 'Eliminar producto'}
+        </button>
+      )}
     </form>
   );
 }
