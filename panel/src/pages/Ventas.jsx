@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Receipt, Ban } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeTick } from '../lib/realtime';
 import MetricPill from '../components/MetricPill';
 
 // Mismo criterio que Productos.jsx: un monto de más de 7 cifras no entra
@@ -62,10 +63,12 @@ export default function Ventas() {
   const anulandoRef = useRef(false);
   const [errorAnular, setErrorAnular] = useState(null);
 
+  const tickVentas = useRealtimeTick('ventas', negocio?.id);
+
   useEffect(() => {
     if (!negocio) return;
     cargar();
-  }, [negocio, periodo]);
+  }, [negocio, periodo, tickVentas]);
 
   async function cargar() {
     setCargando(true);
@@ -161,7 +164,7 @@ export default function Ventas() {
             key={p.id}
             onClick={() => setPeriodo(p.id)}
             className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium ${
-              periodo === p.id ? 'bg-accent text-white' : 'bg-surface text-muted'
+              periodo === p.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
             }`}
           >
             {p.label}

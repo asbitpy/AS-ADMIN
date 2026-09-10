@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, AlertTriangle, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeTick } from '../lib/realtime';
 import ProductoCard from '../components/ProductoCard';
 import ProductoForm from '../components/ProductoForm';
 import ImportarProductos from '../components/ImportarProductos';
@@ -26,10 +27,13 @@ export default function Productos() {
   const [vista, setVista] = useState('lista'); // 'lista' | 'form' | 'importar'
   const [productoEditando, setProductoEditando] = useState(null);
 
+  const tickProductos = useRealtimeTick('productos', negocio?.id);
+  const tickVariantes = useRealtimeTick('variantes_producto', negocio?.id);
+
   useEffect(() => {
     if (!negocio) return;
     cargar();
-  }, [negocio]);
+  }, [negocio, tickProductos, tickVariantes]);
 
   async function cargar() {
     setCargando(true);
@@ -104,7 +108,7 @@ export default function Productos() {
               setProductoEditando(null);
               setVista('form');
             }}
-            className="flex items-center gap-1 rounded-full bg-accent px-3 py-2 text-xs font-medium text-white active:scale-[0.98]"
+            className="flex items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-medium text-ink active:scale-[0.98]"
           >
             <Plus size={16} /> Agregar
           </button>

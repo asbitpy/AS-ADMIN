@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, ShoppingCart, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeTick } from '../lib/realtime';
 import CarritoItem from '../components/CarritoItem';
 import SelectorVariante from '../components/SelectorVariante';
 import CajaBar from '../components/CajaBar';
@@ -41,10 +42,17 @@ export default function Venta() {
   // esperar al repintado.
   const cobrandoRef = useRef(false);
 
+  // Si hay otro cajero vendiendo al mismo tiempo, el stock que se ve acá
+  // se actualiza solo — no evita vender de más por sí mismo (eso ya lo
+  // garantiza fn_descontar_stock del lado de la base), pero evita que el
+  // vendedor confíe en un número de stock que quedó viejo en pantalla.
+  const tickProductos = useRealtimeTick('productos', negocio?.id);
+  const tickVariantes = useRealtimeTick('variantes_producto', negocio?.id);
+
   useEffect(() => {
     if (!negocio) return;
     cargarProductos();
-  }, [negocio]);
+  }, [negocio, tickProductos, tickVariantes]);
 
   // El campo de búsqueda arranca con el foco: el lector de código de
   // barras es, para el sistema, un teclado escribiendo muy rápido — si
@@ -336,7 +344,7 @@ export default function Venta() {
             setVentaConfirmada(null);
             setTimeout(() => searchRef.current?.focus(), 0);
           }}
-          className="mt-4 rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white active:scale-[0.98]"
+          className="mt-4 rounded-xl bg-accent px-6 py-3 text-sm font-medium text-accent-ink active:scale-[0.98]"
         >
           Nueva venta
         </button>
@@ -416,7 +424,7 @@ export default function Venta() {
                     key={m.id}
                     onClick={() => cambiarMetodoPago(pagos[0].id, m.id)}
                     className={`flex-1 rounded-xl py-2 text-xs font-medium ${
-                      pagos[0].metodo === m.id ? 'bg-accent text-white' : 'bg-surface text-muted'
+                      pagos[0].metodo === m.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
                     }`}
                   >
                     {m.label}
@@ -493,7 +501,7 @@ export default function Venta() {
             <button
               onClick={cobrar}
               disabled={cobrando || (dividido && diferenciaPagos !== 0)}
-              className="rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white active:scale-[0.98] disabled:opacity-60"
+              className="rounded-xl bg-brand px-6 py-3 text-sm font-medium text-ink active:scale-[0.98] disabled:opacity-60"
             >
               {cobrando ? 'Cobrando…' : 'Cobrar (F2)'}
             </button>

@@ -90,7 +90,7 @@ export default function Configuracion() {
             <button
               onClick={guardarDireccion}
               disabled={guardando}
-              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white"
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink"
             >
               Guardar
             </button>
@@ -124,7 +124,7 @@ export default function Configuracion() {
             <button
               onClick={guardarSitioWeb}
               disabled={guardandoSitio}
-              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
             >
               Guardar
             </button>

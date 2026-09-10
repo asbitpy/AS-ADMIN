@@ -2,7 +2,7 @@ export default function SelectorVariante({ producto, onElegir, onCerrar }) {
   const variantes = (producto.variantes_producto || []).filter((v) => v.activo && v.stock > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-ink/40" onClick={onCerrar}>
+    <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={onCerrar}>
       <div
         className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-4 pb-8"
         onClick={(e) => e.stopPropagation()}

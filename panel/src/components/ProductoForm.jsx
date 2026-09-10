@@ -437,7 +437,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       <button
         type="submit"
         disabled={guardando}
-        className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:scale-[0.98] disabled:opacity-60"
+        className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink active:scale-[0.98] disabled:opacity-60"
       >
         {guardando ? 'Guardando…' : esEdicion ? 'Guardar cambios' : 'Agregar producto'}
       </button>

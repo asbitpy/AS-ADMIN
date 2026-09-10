@@ -271,7 +271,7 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
         </div>
         <button
           onClick={onImportado}
-          className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:scale-[0.98]"
+          className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink active:scale-[0.98]"
         >
           Ver catálogo
         </button>
@@ -377,7 +377,7 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
             <button
               onClick={confirmarImportacion}
               disabled={importando || validas.length === 0}
-              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
             >
               {importando ? 'Importando…' : `Importar ${validas.length}`}
             </button>

@@ -20,7 +20,8 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-base px-6">
       <div className="w-full max-w-sm">
-        <p className="text-center text-sm text-muted">AS ADMIN</p>
+        <img src="/asbit-logo.png" alt="AS BIT" className="mx-auto h-12 w-12" />
+        <p className="mt-4 text-center text-sm text-muted">AS ADMIN</p>
         <h1 className="mt-1 text-center font-display text-3xl font-semibold text-ink">
           Tu negocio, hoy
         </h1>
@@ -48,7 +49,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={cargando}
-            className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white active:scale-[0.98] disabled:opacity-60"
+            className="w-full rounded-xl bg-brand py-3 text-sm font-medium text-ink active:scale-[0.98] disabled:opacity-60"
           >
             {cargando ? 'Entrando…' : 'Entrar'}
           </button>

@@ -157,7 +157,7 @@ export default function Equipo() {
             <button
               type="submit"
               disabled={guardando}
-              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
             >
               {guardando ? 'Agregando…' : 'Agregar'}
             </button>
@@ -173,7 +173,7 @@ export default function Equipo() {
         <p className="font-display text-xl text-ink">Equipo</p>
         <button
           onClick={() => setVista('form')}
-          className="flex items-center gap-1 rounded-full bg-accent px-3 py-2 text-xs font-medium text-white active:scale-[0.98]"
+          className="flex items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-medium text-ink active:scale-[0.98]"
         >
           <UserPlus size={16} /> Agregar
         </button>

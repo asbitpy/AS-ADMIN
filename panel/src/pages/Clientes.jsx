@@ -198,7 +198,7 @@ function FichaCliente({ cliente, onVolver, onActualizado }) {
         <button
           onClick={guardar}
           disabled={guardando}
-          className="mt-3 w-full rounded-lg bg-accent py-2 text-xs font-medium text-white disabled:opacity-60"
+          className="mt-3 w-full rounded-lg bg-accent py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
         >
           {guardando ? 'Guardando…' : 'Guardar cambios'}
         </button>

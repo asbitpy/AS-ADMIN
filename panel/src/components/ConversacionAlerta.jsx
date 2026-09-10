@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, ChevronRight } from 'lucide-react';
 
 export default function ConversacionAlerta({ conversacion }) {
   const alta = conversacion.prioridad === 'alta';
@@ -8,17 +8,14 @@ export default function ConversacionAlerta({ conversacion }) {
       href={`https://wa.me/${conversacion.cliente?.telefono}`}
       target="_blank"
       rel="noreferrer"
-      className={`flex items-center gap-3 rounded-2xl p-3 shadow-card ${
-        alta ? 'bg-danger-soft' : 'bg-surface'
-      }`}
+      className={`flex items-center gap-2 rounded-xl px-3 py-2.5 ${alta ? 'bg-danger-soft' : 'bg-amber-soft'}`}
     >
-      <span className={`rounded-full p-2 ${alta ? 'bg-danger/15' : 'bg-accent-soft'}`}>
-        <MessageCircle size={18} className={alta ? 'text-danger' : 'text-accent'} />
+      <MessageCircle size={15} className={`shrink-0 ${alta ? 'text-danger' : 'text-amber'}`} />
+      <span className={`flex-1 truncate text-xs font-medium ${alta ? 'text-danger' : 'text-amber'}`}>
+        {conversacion.cliente?.nombre || 'Un cliente'} está esperando respuesta
+        {alta ? ' — prioridad alta' : ''}
       </span>
-      <div className="flex-1">
-        <p className="text-sm font-medium text-ink">{conversacion.cliente?.nombre || 'Cliente'}</p>
-        <p className="text-xs text-muted">{alta ? 'Necesita atención — prioridad alta' : 'Esperando respuesta'}</p>
-      </div>
+      <ChevronRight size={14} className={`shrink-0 ${alta ? 'text-danger' : 'text-amber'}`} />
     </a>
   );
 }

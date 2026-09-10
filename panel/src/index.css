@@ -9,4 +9,9 @@
   :focus-visible {
     @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-base;
   }
+  /* Sin una mono dedicada (antes IBM Plex Mono), font-mono cae en Inter
+     — esto alinea los dígitos igual para horas y montos en guaraníes. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
 }

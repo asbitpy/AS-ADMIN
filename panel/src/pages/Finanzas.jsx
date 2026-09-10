@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeTick } from '../lib/realtime';
 import MetricPill from '../components/MetricPill';
 
 const PERIODOS = [
@@ -65,15 +66,20 @@ export default function Finanzas() {
   const [error, setError] = useState(null);
   const guardandoRef = useRef(false);
 
+  const tickMovimientos = useRealtimeTick('movimientos_financieros', negocio?.id);
+  const tickCaja = useRealtimeTick('caja_sesiones', negocio?.id);
+  const tickConversaciones = useRealtimeTick('conversaciones', negocio?.id);
+  const tickProductos = useRealtimeTick('productos', negocio?.id);
+
   useEffect(() => {
     if (!negocio) return;
     cargarMovimientos();
-  }, [negocio, periodo]);
+  }, [negocio, periodo, tickMovimientos]);
 
   useEffect(() => {
     if (!negocio) return;
     cargarPendientes();
-  }, [negocio]);
+  }, [negocio, tickCaja, tickConversaciones, tickProductos]);
 
   async function cargarMovimientos() {
     setCargando(true);
@@ -285,7 +291,7 @@ export default function Finanzas() {
             key={p.id}
             onClick={() => setPeriodo(p.id)}
             className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium ${
-              periodo === p.id ? 'bg-accent text-white' : 'bg-surface text-muted'
+              periodo === p.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
             }`}
           >
             {p.label}
@@ -301,7 +307,7 @@ export default function Finanzas() {
 
       <button
         onClick={() => setVistaForm(true)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-surface py-2.5 text-xs font-medium text-accent shadow-card"
+        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-medium text-ink"
       >
         <Plus size={14} /> Cargar un gasto o ingreso manual
       </button>
@@ -335,7 +341,7 @@ export default function Finanzas() {
       )}
 
       {vistaForm && (
-        <div className="fixed inset-0 z-50 flex items-end bg-ink/40" onClick={() => setVistaForm(false)}>
+        <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setVistaForm(false)}>
           <div className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-5 pb-8" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="font-display text-lg text-ink">Cargar movimiento</p>
@@ -359,7 +365,7 @@ export default function Finanzas() {
                   type="button"
                   onClick={() => setTipoNuevo('ingreso')}
                   className={`flex-1 rounded-xl py-2 text-xs font-medium ${
-                    tipoNuevo === 'ingreso' ? 'bg-accent text-white' : 'bg-base text-muted'
+                    tipoNuevo === 'ingreso' ? 'bg-accent text-accent-ink' : 'bg-base text-muted'
                   }`}
                 >
                   Ingreso
@@ -409,7 +415,7 @@ export default function Finanzas() {
               <button
                 type="submit"
                 disabled={guardando}
-                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
               >
                 {guardando ? 'Guardando…' : 'Guardar'}
               </button>

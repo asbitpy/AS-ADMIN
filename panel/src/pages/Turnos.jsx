@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeTick } from '../lib/realtime';
 import TurnoCard from '../components/TurnoCard';
 
 const FILTROS = [
@@ -15,10 +16,12 @@ export default function Turnos() {
   const [turnos, setTurnos] = useState([]);
   const [cargando, setCargando] = useState(true);
 
+  const tickTurnos = useRealtimeTick('turnos', negocio?.id);
+
   useEffect(() => {
     if (!negocio) return;
     cargar();
-  }, [negocio, filtro]);
+  }, [negocio, filtro, tickTurnos]);
 
   async function cargar() {
     setCargando(true);
@@ -55,7 +58,7 @@ export default function Turnos() {
             key={f.id}
             onClick={() => setFiltro(f.id)}
             className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium ${
-              filtro === f.id ? 'bg-accent text-white' : 'bg-surface text-muted'
+              filtro === f.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
             }`}
           >
             {f.label}

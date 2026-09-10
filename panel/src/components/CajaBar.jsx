@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock, Unlock, Plus, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useRealtimeTick } from '../lib/realtime';
 
 function horaTexto(fecha) {
   return new Intl.DateTimeFormat('es-PY', {
@@ -39,10 +40,15 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
 
+  // Si otro cajero abre o cierra la caja desde su propio celular, esta
+  // barra se entera sola — importante para no pisarse entre dos personas
+  // del mismo mostrador.
+  const tickCaja = useRealtimeTick('caja_sesiones', negocioId);
+
   useEffect(() => {
     if (!negocioId) return;
     cargarSesion();
-  }, [negocioId]);
+  }, [negocioId, tickCaja]);
 
   async function cargarSesion() {
     setCargando(true);
@@ -170,7 +176,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
   const barra = (
     <div className="flex items-center justify-between rounded-xl bg-surface px-4 py-2.5 shadow-card">
       <div className="flex items-center gap-2">
-        {sesion ? <Unlock size={15} className="text-accent" /> : <Lock size={15} className="text-muted" />}
+        {sesion ? <Unlock size={15} className="text-success" /> : <Lock size={15} className="text-muted" />}
         <div>
           <p className="text-xs font-medium text-ink">{sesion ? 'Caja abierta' : 'Caja cerrada'}</p>
           {sesion && <p className="text-[11px] text-muted">Desde las {horaTexto(sesion.abierta_en)}</p>}
@@ -188,7 +194,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
         )}
         <button
           onClick={() => setVista(sesion ? 'cierre' : 'apertura')}
-          className="rounded-full bg-accent px-3 py-1.5 text-[11px] font-medium text-white"
+          className="rounded-full bg-accent px-3 py-1.5 text-[11px] font-medium text-accent-ink"
         >
           {sesion ? 'Cerrar caja' : 'Abrir caja'}
         </button>
@@ -201,7 +207,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
   return (
     <>
       {barra}
-      <div className="fixed inset-0 z-50 flex items-end bg-ink/40" onClick={() => setVista('barra')}>
+      <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setVista('barra')}>
         <div
           className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-5 pb-8"
           onClick={(e) => e.stopPropagation()}
@@ -227,7 +233,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
               <button
                 type="submit"
                 disabled={guardando}
-                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
               >
                 {guardando ? 'Abriendo…' : 'Abrir caja'}
               </button>
@@ -249,7 +255,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
                     key={c.id}
                     onClick={() => setGastoCategoria(c.id)}
                     className={`flex-1 rounded-xl py-2 text-xs font-medium ${
-                      gastoCategoria === c.id ? 'bg-accent text-white' : 'bg-base text-muted'
+                      gastoCategoria === c.id ? 'bg-accent text-accent-ink' : 'bg-base text-muted'
                     }`}
                   >
                     {c.label}
@@ -274,7 +280,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
               <button
                 type="submit"
                 disabled={guardando}
-                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
               >
                 {guardando ? 'Guardando…' : 'Registrar'}
               </button>
@@ -340,7 +346,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
               <button
                 type="submit"
                 disabled={guardando}
-                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
               >
                 {guardando ? 'Cerrando…' : 'Cerrar caja'}
               </button>
