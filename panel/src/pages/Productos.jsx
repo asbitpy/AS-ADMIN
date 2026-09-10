@@ -4,6 +4,18 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import ProductoCard from '../components/ProductoCard';
 import ProductoForm from '../components/ProductoForm';
+import MetricPill from '../components/MetricPill';
+
+// "Gs. 41.685.000" no entra en un tercio de pantalla ni achicando la
+// letra — a partir del millón se abrevia, que es además como se habla
+// la plata en Paraguay ("41 millones y medio", no "cuarenta y un mil...").
+function formatoGsCompacto(monto) {
+  const n = Number(monto);
+  if (n >= 1_000_000) {
+    return `Gs. ${(n / 1_000_000).toLocaleString('es-PY', { maximumFractionDigits: 1 })} M`;
+  }
+  return `Gs. ${n.toLocaleString('es-PY')}`;
+}
 
 export default function Productos() {
   const { negocio } = useAuth();
@@ -22,7 +34,7 @@ export default function Productos() {
     setCargando(true);
     const { data } = await supabase
       .from('productos')
-      .select('*, variantes_producto(stock, activo)')
+      .select('*, variantes_producto(stock, activo, precio_override)')
       .eq('negocio_id', negocio.id)
       .eq('activo', true)
       .order('nombre');
@@ -32,7 +44,13 @@ export default function Productos() {
       const stock_total = p.tiene_variantes
         ? variantesActivas.reduce((acc, v) => acc + v.stock, 0)
         : p.stock;
-      return { ...p, stock_total, variantes_count: variantesActivas.length };
+      // Valor de lo que hay en estante, al precio de venta de cada variante
+      // (o del producto si no tiene variantes) — no es ganancia, es cuánto
+      // representa el stock parado si se vendiera todo hoy.
+      const valor_en_stock = p.tiene_variantes
+        ? variantesActivas.reduce((acc, v) => acc + v.stock * Number(v.precio_override ?? p.precio), 0)
+        : p.stock * Number(p.precio);
+      return { ...p, stock_total, variantes_count: variantesActivas.length, valor_en_stock };
     });
 
     setProductos(conStockTotal);
@@ -41,6 +59,8 @@ export default function Productos() {
 
   const filtrados = productos.filter((p) => p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
   const conStockBajo = productos.filter((p) => p.stock_total <= p.stock_minimo);
+  const valorTotalInventario = productos.reduce((acc, p) => acc + p.valor_en_stock, 0);
+  const unidadesTotales = productos.reduce((acc, p) => acc + p.stock_total, 0);
 
   if (vista === 'form') {
     return (
@@ -69,6 +89,19 @@ export default function Productos() {
           <Plus size={16} /> Agregar
         </button>
       </div>
+
+      {!cargando && productos.length > 0 && (
+        <div className="flex gap-3">
+          <MetricPill label="Productos" value={productos.length} />
+          <MetricPill label="Unidades en stock" value={unidadesTotales} />
+          <MetricPill
+            label="Valor en estante"
+            value={formatoGsCompacto(valorTotalInventario)}
+            tone="accent"
+            compact
+          />
+        </div>
+      )}
 
       {conStockBajo.length > 0 && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">

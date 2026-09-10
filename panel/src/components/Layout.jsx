@@ -1,5 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { CalendarHeart, CalendarDays, Settings, Package, ShoppingCart } from 'lucide-react';
+import {
+  CalendarHeart,
+  CalendarDays,
+  Settings,
+  Package,
+  ShoppingCart,
+  Receipt,
+  Users,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
@@ -12,9 +20,16 @@ export default function Layout() {
     tieneAgenda && { to: '/', label: 'Hoy', icon: CalendarHeart, end: true },
     tieneAgenda && { to: '/turnos', label: 'Turnos', icon: CalendarDays },
     tieneRetail && { to: tieneAgenda ? '/vender' : '/', label: 'Vender', icon: ShoppingCart, end: !tieneAgenda },
+    tieneRetail && { to: '/ventas', label: 'Ventas', icon: Receipt },
     tieneRetail && { to: '/productos', label: 'Productos', icon: Package },
+    // Clientes es del núcleo común: sirve tanto a servicio como a retail
+    { to: '/clientes', label: 'Clientes', icon: Users },
     { to: '/configuracion', label: 'Config', icon: Settings },
   ].filter(Boolean);
+
+  // Con más de 5 pestañas la barra queda apretada en un celular chico:
+  // se sacan las etiquetas y quedan solo los íconos.
+  const compacta = tabs.length > 5;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col bg-base">
@@ -36,6 +51,7 @@ export default function Layout() {
               key={to}
               to={to}
               end={end}
+              title={label}
               className={({ isActive }) =>
                 `flex flex-1 flex-col items-center gap-1 py-3 text-xs font-medium ${
                   isActive ? 'text-accent' : 'text-muted'
@@ -43,7 +59,7 @@ export default function Layout() {
               }
             >
               <Icon size={20} />
-              {label}
+              {!compacta && label}
             </NavLink>
           ))}
         </div>

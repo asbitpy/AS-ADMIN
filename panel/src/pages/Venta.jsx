@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, ShoppingCart, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ export default function Venta() {
   const { negocio } = useAuth();
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
   const [carrito, setCarrito] = useState([]);
   const [cajaSesionId, setCajaSesionId] = useState(null);
   const [productoParaVariante, setProductoParaVariante] = useState(null);
@@ -26,10 +27,20 @@ export default function Venta() {
   const [ventaConfirmada, setVentaConfirmada] = useState(null);
   const [error, setError] = useState(null);
 
+  const searchRef = useRef(null);
+  const telefonoRef = useRef(null);
+
   useEffect(() => {
     if (!negocio) return;
     cargarProductos();
   }, [negocio]);
+
+  // El campo de búsqueda arranca con el foco: el lector de código de
+  // barras es, para el sistema, un teclado escribiendo muy rápido — si
+  // el foco no está acá, escanear no hace nada.
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
 
   async function cargarProductos() {
     const { data } = await supabase
@@ -53,6 +64,10 @@ export default function Venta() {
       )
       .slice(0, 8);
   }, [busqueda, productos]);
+
+  useEffect(() => {
+    setIndiceSeleccionado(0);
+  }, [resultados]);
 
   function agregarAlCarrito(producto, variante = null) {
     const stockDisponible = variante ? variante.stock : producto.stock;
@@ -86,9 +101,11 @@ export default function Venta() {
     });
     setBusqueda('');
     setProductoParaVariante(null);
+    searchRef.current?.focus();
   }
 
   function onSeleccionarResultado(producto) {
+    if (!producto) return;
     // Barcode exacto sobre una variante puntual: la agrega directo.
     const variantePorCodigo = producto.variantes_producto?.find((v) => v.codigo_barras === busqueda);
     if (variantePorCodigo) return agregarAlCarrito(producto, variantePorCodigo);
@@ -129,7 +146,7 @@ export default function Venta() {
   }
 
   async function cobrar() {
-    if (carrito.length === 0) return;
+    if (carrito.length === 0 || cobrando) return;
     setError(null);
     setCobrando(true);
 
@@ -181,6 +198,74 @@ export default function Venta() {
     }
   }
 
+  // Atajos de teclado del mostrador: F2 cobra, F8 vacía el carrito, Esc
+  // limpia la búsqueda, ↑↓ navegan los resultados y Enter agrega el
+  // resaltado. La regla que hace que el lector de barras nunca "se
+  // pierda": si ninguna caja de texto tiene el foco y se aprieta una
+  // tecla imprimible, el foco vuelve solo a la búsqueda.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (productoParaVariante) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setProductoParaVariante(null);
+          searchRef.current?.focus();
+        }
+        return;
+      }
+
+      if (e.key === 'F2') {
+        e.preventDefault();
+        cobrar();
+        return;
+      }
+      if (e.key === 'F8') {
+        e.preventDefault();
+        setCarrito([]);
+        setBusqueda('');
+        searchRef.current?.focus();
+        return;
+      }
+      if (e.key === 'F3') {
+        e.preventDefault();
+        telefonoRef.current?.focus();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setBusqueda('');
+        searchRef.current?.focus();
+        return;
+      }
+
+      if (document.activeElement === telefonoRef.current) return; // no interferir mientras escribe el teléfono
+
+      if (document.activeElement === searchRef.current) {
+        if (e.key === 'ArrowDown' && resultados.length > 0) {
+          e.preventDefault();
+          setIndiceSeleccionado((i) => Math.min(i + 1, resultados.length - 1));
+        } else if (e.key === 'ArrowUp' && resultados.length > 0) {
+          e.preventDefault();
+          setIndiceSeleccionado((i) => Math.max(i - 1, 0));
+        } else if (e.key === 'Enter' && resultados.length > 0) {
+          e.preventDefault();
+          onSeleccionarResultado(resultados[indiceSeleccionado] || resultados[0]);
+        }
+        return;
+      }
+
+      // Nada tiene el foco (se hizo clic en otro lado): cualquier tecla
+      // imprimible retoma la búsqueda, como si nunca la hubiera perdido.
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        searchRef.current?.focus();
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carrito, cobrando, resultados, indiceSeleccionado, productoParaVariante, busqueda]);
+
   if (ventaConfirmada) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 pt-16 text-center">
@@ -190,7 +275,10 @@ export default function Venta() {
         <p className="font-display text-2xl text-ink">Venta registrada</p>
         <p className="font-mono text-lg text-ink">Gs. {ventaConfirmada.total.toLocaleString('es-PY')}</p>
         <button
-          onClick={() => setVentaConfirmada(null)}
+          onClick={() => {
+            setVentaConfirmada(null);
+            setTimeout(() => searchRef.current?.focus(), 0);
+          }}
           className="mt-4 rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white active:scale-[0.98]"
         >
           Nueva venta
@@ -208,6 +296,7 @@ export default function Venta() {
       <div className="relative">
         <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
         <input
+          ref={searchRef}
           autoFocus
           placeholder="Buscar por nombre o escanear código de barras…"
           value={busqueda}
@@ -218,11 +307,13 @@ export default function Venta() {
 
       {resultados.length > 0 && (
         <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
-          {resultados.map((p) => (
+          {resultados.map((p, i) => (
             <button
               key={p.id}
               onClick={() => onSeleccionarResultado(p)}
-              className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left active:bg-base"
+              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left ${
+                i === indiceSeleccionado ? 'bg-accent-soft' : 'active:bg-base'
+              }`}
             >
               <span className="text-sm text-ink">{p.nombre}</span>
               <span className="font-mono text-xs text-muted">Gs. {Number(p.precio).toLocaleString('es-PY')}</span>
@@ -235,6 +326,7 @@ export default function Venta() {
         <div className="flex flex-col items-center gap-2 rounded-2xl bg-surface py-10 text-center shadow-card">
           <ShoppingCart size={24} className="text-muted" />
           <p className="text-sm text-muted">Buscá un producto para empezar la venta.</p>
+          <p className="text-xs text-muted">o escaneá un código de barras</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -252,7 +344,8 @@ export default function Venta() {
       {carrito.length > 0 && (
         <>
           <input
-            placeholder="Teléfono del cliente (opcional)"
+            ref={telefonoRef}
+            placeholder="Teléfono del cliente (opcional) — F3"
             value={telefonoCliente}
             onChange={(e) => setTelefonoCliente(e.target.value)}
             className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
@@ -286,16 +379,21 @@ export default function Venta() {
               disabled={cobrando}
               className="rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white active:scale-[0.98] disabled:opacity-60"
             >
-              {cobrando ? 'Cobrando…' : 'Cobrar'}
+              {cobrando ? 'Cobrando…' : 'Cobrar (F2)'}
             </button>
           </div>
+
+          <p className="text-center text-[11px] text-muted">F2 cobrar · F8 vaciar carrito · Esc limpiar búsqueda</p>
         </>
       )}
       {productoParaVariante && (
         <SelectorVariante
           producto={productoParaVariante}
           onElegir={(variante) => agregarAlCarrito(productoParaVariante, variante)}
-          onCerrar={() => setProductoParaVariante(null)}
+          onCerrar={() => {
+            setProductoParaVariante(null);
+            searchRef.current?.focus();
+          }}
         />
       )}
     </div>

@@ -5,7 +5,9 @@ import Login from './pages/Login';
 import Hoy from './pages/Hoy';
 import Turnos from './pages/Turnos';
 import Venta from './pages/Venta';
+import Ventas from './pages/Ventas';
 import Productos from './pages/Productos';
+import Clientes from './pages/Clientes';
 import Configuracion from './pages/Configuracion';
 
 export default function App() {
@@ -46,7 +48,10 @@ export default function App() {
         <Route path="/" element={tieneAgenda ? <Hoy /> : tieneRetail ? <Venta /> : <Productos />} />
         {tieneAgenda && <Route path="/turnos" element={<Turnos />} />}
         {tieneRetail && <Route path="/vender" element={<Venta />} />}
+        {tieneRetail && <Route path="/ventas" element={<Ventas />} />}
         {tieneRetail && <Route path="/productos" element={<Productos />} />}
+        {/* Clientes es del núcleo común: sirve tanto a servicio como a retail */}
+        <Route path="/clientes" element={<Clientes />} />
         <Route path="/configuracion" element={<Configuracion />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

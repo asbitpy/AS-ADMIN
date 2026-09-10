@@ -10,7 +10,11 @@ export default function Configuracion() {
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion_minutos: 30 });
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', motivo: '' });
   const [direccion, setDireccion] = useState(negocio?.direccion || '');
+  const [sitioWeb, setSitioWeb] = useState(negocio?.sitio_web_url || '');
   const [guardando, setGuardando] = useState(false);
+  const [guardandoSitio, setGuardandoSitio] = useState(false);
+
+  const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
 
   useEffect(() => {
     if (!negocio) return;
@@ -30,6 +34,12 @@ export default function Configuracion() {
     setGuardando(true);
     await supabase.from('negocios').update({ direccion }).eq('id', negocio.id);
     setGuardando(false);
+  }
+
+  async function guardarSitioWeb() {
+    setGuardandoSitio(true);
+    await supabase.from('negocios').update({ sitio_web_url: sitioWeb || null }).eq('id', negocio.id);
+    setGuardandoSitio(false);
   }
 
   async function agregarServicio(e) {
@@ -81,6 +91,40 @@ export default function Configuracion() {
               onClick={guardarDireccion}
               disabled={guardando}
               className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Tienda online</p>
+        <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">
+          {tieneEcommerce ? (
+            <p className="text-xs text-accent">
+              Módulo de ecommerce activo: el catálogo de productos activos está disponible para que un
+              sitio externo lo lea (precio, foto y si hay stock — nada más).
+            </p>
+          ) : (
+            <p className="text-xs text-muted">
+              Este negocio todavía no tiene el módulo de ecommerce activado. Pedile a AS BIT que lo
+              habilite si querés conectar una tienda online al mismo catálogo e inventario.
+            </p>
+          )}
+
+          <label className="mt-3 block text-xs text-muted">Link de tu tienda online (si tenés)</label>
+          <div className="mt-1 flex gap-2">
+            <input
+              placeholder="https://tutienda.com.py"
+              value={sitioWeb}
+              onChange={(e) => setSitioWeb(e.target.value)}
+              className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+            />
+            <button
+              onClick={guardarSitioWeb}
+              disabled={guardandoSitio}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
             >
               Guardar
             </button>
