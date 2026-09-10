@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Receipt, Ban } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -59,6 +59,8 @@ export default function Ventas() {
   const [ventaAbierta, setVentaAbierta] = useState(null); // id de la venta con el detalle abierto
   const [detalle, setDetalle] = useState(null);
   const [anulando, setAnulando] = useState(false);
+  const anulandoRef = useRef(false);
+  const [errorAnular, setErrorAnular] = useState(null);
 
   useEffect(() => {
     if (!negocio) return;
@@ -92,19 +94,24 @@ export default function Ventas() {
     setDetalle({ venta, items: data || [] });
   }
 
-  async function anular(venta) {
-    const motivo = window.prompt('¿Por qué anulás esta venta? (queda guardado)');
-    if (motivo === null) return; // canceló el prompt
-
+  // Recibe el motivo como parámetro en vez de pedirlo con window.prompt():
+  // el diálogo nativo del navegador se puede quedar mudo (Chrome ofrece
+  // "no volver a preguntar en esta página" después de un par de
+  // confirmaciones seguidas), y ahí el botón parece "no hacer nada".
+  async function anular(venta, motivo) {
+    if (anulandoRef.current) return;
+    anulandoRef.current = true;
+    setErrorAnular(null);
     setAnulando(true);
     const { error } = await supabase.rpc('fn_anular_venta', {
       p_venta_id: venta.id,
       p_motivo: motivo || null,
     });
+    anulandoRef.current = false;
     setAnulando(false);
 
     if (error) {
-      window.alert('No se pudo anular: ' + error.message);
+      setErrorAnular('No se pudo anular: ' + error.message);
       return;
     }
     setVentaAbierta(null);
@@ -128,7 +135,13 @@ export default function Ventas() {
         {!detalle ? (
           <p className="pt-6 text-center text-sm text-muted">Cargando…</p>
         ) : (
-          <DetalleVenta venta={detalle.venta} items={detalle.items} onAnular={anular} anulando={anulando} />
+          <DetalleVenta
+            venta={detalle.venta}
+            items={detalle.items}
+            onAnular={anular}
+            anulando={anulando}
+            error={errorAnular}
+          />
         )}
       </div>
     );
@@ -203,7 +216,10 @@ export default function Ventas() {
   );
 }
 
-function DetalleVenta({ venta, items, onAnular, anulando }) {
+function DetalleVenta({ venta, items, onAnular, anulando, error }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [motivo, setMotivo] = useState('');
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl bg-surface p-4 shadow-card">
@@ -267,14 +283,47 @@ function DetalleVenta({ venta, items, onAnular, anulando }) {
         )}
       </div>
 
-      {venta.estado !== 'anulada' && (
+      {error && <p className="rounded-xl bg-danger-soft p-3 text-xs text-danger">{error}</p>}
+
+      {venta.estado !== 'anulada' && !confirmando && (
         <button
-          onClick={() => onAnular(venta)}
-          disabled={anulando}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger disabled:opacity-50"
+          onClick={() => setConfirmando(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger"
         >
-          <Ban size={16} /> {anulando ? 'Anulando…' : 'Anular esta venta'}
+          <Ban size={16} /> Anular esta venta
         </button>
+      )}
+
+      {confirmando && (
+        <div className="space-y-2 rounded-xl bg-danger-soft p-3">
+          <p className="text-xs text-danger">¿Por qué anulás esta venta? (queda guardado, es opcional)</p>
+          <input
+            autoFocus
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ej: el cliente se arrepintió"
+            className="w-full rounded-lg border border-danger/30 bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-danger"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setConfirmando(false);
+                setMotivo('');
+              }}
+              disabled={anulando}
+              className="flex-1 rounded-lg border border-line bg-surface py-2 text-xs font-medium text-ink disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => onAnular(venta, motivo)}
+              disabled={anulando}
+              className="flex-1 rounded-lg bg-danger py-2 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {anulando ? 'Anulando…' : 'Sí, anular'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

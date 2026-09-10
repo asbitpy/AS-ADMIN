@@ -32,6 +32,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
   const [fotoPreview, setFotoPreview] = useState(productoExistente?.foto_url || null);
   const [guardando, setGuardando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState(false);
   const [error, setError] = useState(null);
   // "disabled={guardando}" depende de que React vuelva a pintar la
   // pantalla, y entre un clic y el siguiente hay una ventana chica donde
@@ -40,6 +41,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
   // crear el producto duplicado. Este ref no depende del repintado: se
   // lee y se escribe en el mismo instante en que entra el clic.
   const enviandoRef = useRef(false);
+  const eliminandoRef = useRef(false);
 
   const esEdicion = Boolean(productoExistente);
 
@@ -201,15 +203,14 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
   }
 
   async function eliminarProducto() {
-    if (!productoExistente) return;
-    if (!window.confirm(`¿Eliminar "${productoExistente.nombre}"? No se borra el historial de ventas ya hechas con este producto — solo deja de aparecer en el catálogo.`)) {
-      return;
-    }
+    if (!productoExistente || eliminandoRef.current) return;
+    eliminandoRef.current = true;
     setEliminando(true);
     const { error: errDelete } = await supabase
       .from('productos')
       .update({ activo: false })
       .eq('id', productoExistente.id);
+    eliminandoRef.current = false;
     setEliminando(false);
     if (errDelete) {
       setError('No se pudo eliminar. Probá de nuevo en un momento.');
@@ -441,15 +442,46 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
         {guardando ? 'Guardando…' : esEdicion ? 'Guardar cambios' : 'Agregar producto'}
       </button>
 
-      {esEdicion && (
+      {esEdicion && !confirmandoEliminar && (
         <button
           type="button"
-          onClick={eliminarProducto}
-          disabled={eliminando}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger disabled:opacity-50"
+          onClick={() => setConfirmandoEliminar(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger"
         >
-          <Trash2 size={16} /> {eliminando ? 'Eliminando…' : 'Eliminar producto'}
+          <Trash2 size={16} /> Eliminar producto
         </button>
+      )}
+
+      {/* Confirmación propia, no window.confirm(): el diálogo nativo del
+          navegador se puede quedar mudo (Chrome ofrece "no volver a
+          preguntar en esta página" después de un par de confirmaciones,
+          y si alguna vez se tocó por error, el botón parece "no hacer
+          nada" para siempre). Esto no depende del navegador. */}
+      {confirmandoEliminar && (
+        <div className="space-y-2 rounded-xl bg-danger-soft p-3">
+          <p className="text-xs text-danger">
+            ¿Eliminar "{productoExistente?.nombre}"? El historial de ventas ya hechas con este producto
+            no se borra — solo deja de aparecer en el catálogo.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmandoEliminar(false)}
+              disabled={eliminando}
+              className="flex-1 rounded-lg border border-line bg-surface py-2 text-xs font-medium text-ink disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={eliminarProducto}
+              disabled={eliminando}
+              className="flex-1 rounded-lg bg-danger py-2 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {eliminando ? 'Eliminando…' : 'Sí, eliminar'}
+            </button>
+          </div>
+        </div>
       )}
     </form>
   );
