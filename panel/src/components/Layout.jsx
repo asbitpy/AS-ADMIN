@@ -7,14 +7,27 @@ import {
   ShoppingCart,
   Receipt,
   Users,
+  UserCog,
+  LogOut,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
+const ETIQUETAS_ROL = {
+  dueno: 'Dueño',
+  gerente: 'Gerente',
+  cajero: 'Cajero',
+  vendedor: 'Vendedor',
+  profesional: 'Profesional',
+};
+
 export default function Layout() {
-  const { negocio } = useAuth();
+  const { negocio, usuario, rol, esDueno, signOut } = useAuth();
   const modulos = negocio?.modulos_activos || ['agenda'];
   const tieneRetail = modulos.includes('inventario') || modulos.includes('pos');
   const tieneAgenda = modulos.includes('agenda');
+  // Config toca datos del negocio (horarios, precios, módulos): solo
+  // para quien puede tomar esas decisiones. Un cajero o vendedor no la ve.
+  const puedeConfigurar = rol === 'dueno' || rol === 'gerente';
 
   const tabs = [
     tieneAgenda && { to: '/', label: 'Hoy', icon: CalendarHeart, end: true },
@@ -24,7 +37,8 @@ export default function Layout() {
     tieneRetail && { to: '/productos', label: 'Productos', icon: Package },
     // Clientes es del núcleo común: sirve tanto a servicio como a retail
     { to: '/clientes', label: 'Clientes', icon: Users },
-    { to: '/configuracion', label: 'Config', icon: Settings },
+    esDueno && { to: '/equipo', label: 'Equipo', icon: UserCog },
+    puedeConfigurar && { to: '/configuracion', label: 'Config', icon: Settings },
   ].filter(Boolean);
 
   // Con más de 5 pestañas la barra queda apretada en un celular chico:
@@ -34,10 +48,20 @@ export default function Layout() {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col bg-base">
       <header className="flex items-center justify-between px-5 pb-2 pt-6">
-        <div>
-          <p className="text-xs text-muted">AS ADMIN</p>
-          <h1 className="font-display text-lg font-semibold text-ink">{negocio?.nombre}</h1>
+        <div className="min-w-0">
+          <p className="text-xs text-muted">AS ADMIN{!esDueno ? ` · ${ETIQUETAS_ROL[rol] || rol}` : ''}</p>
+          <h1 className="truncate font-display text-lg font-semibold text-ink">{negocio?.nombre}</h1>
+          {!esDueno && usuario?.nombre && <p className="text-xs text-muted">{usuario.nombre}</p>}
         </div>
+        {/* Siempre visible sin importar el rol: si Config está oculta
+            (cajero, vendedor) no puede quedar sin forma de salir. */}
+        <button
+          onClick={signOut}
+          title="Cerrar sesión"
+          className="shrink-0 rounded-full p-2 text-muted active:text-danger"
+        >
+          <LogOut size={18} />
+        </button>
       </header>
 
       <main className="flex-1 px-5 pb-24 pt-2">

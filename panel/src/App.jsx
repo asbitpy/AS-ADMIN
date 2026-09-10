@@ -8,10 +8,11 @@ import Venta from './pages/Venta';
 import Ventas from './pages/Ventas';
 import Productos from './pages/Productos';
 import Clientes from './pages/Clientes';
+import Equipo from './pages/Equipo';
 import Configuracion from './pages/Configuracion';
 
 export default function App() {
-  const { session, negocio, cargando } = useAuth();
+  const { session, negocio, cargando, esDueno, rol } = useAuth();
 
   if (cargando) {
     return (
@@ -38,6 +39,9 @@ export default function App() {
   const modulos = negocio.modulos_activos || ['agenda'];
   const tieneAgenda = modulos.includes('agenda');
   const tieneRetail = modulos.includes('inventario') || modulos.includes('pos');
+  // Config toca datos del negocio: solo dueño/gerente. Un cajero o
+  // vendedor que teclee la URL a mano cae a "/", no ve el formulario.
+  const puedeConfigurar = rol === 'dueno' || rol === 'gerente';
 
   return (
     <Routes>
@@ -52,7 +56,8 @@ export default function App() {
         {tieneRetail && <Route path="/productos" element={<Productos />} />}
         {/* Clientes es del núcleo común: sirve tanto a servicio como a retail */}
         <Route path="/clientes" element={<Clientes />} />
-        <Route path="/configuracion" element={<Configuracion />} />
+        {esDueno && <Route path="/equipo" element={<Equipo />} />}
+        {puedeConfigurar && <Route path="/configuracion" element={<Configuracion />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

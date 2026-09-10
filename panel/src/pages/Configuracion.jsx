@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, LogOut } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 export default function Configuracion() {
-  const { negocio, signOut } = useAuth();
+  const { negocio } = useAuth();
   const [servicios, setServicios] = useState([]);
   const [feriados, setFeriados] = useState([]);
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion_minutos: 30 });
@@ -207,13 +207,6 @@ export default function Configuracion() {
           </button>
         </form>
       </section>
-
-      <button
-        onClick={signOut}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-line py-3 text-sm text-muted"
-      >
-        <LogOut size={16} /> Cerrar sesión
-      </button>
     </div>
   );
 }
