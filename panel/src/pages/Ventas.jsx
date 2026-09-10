@@ -87,11 +87,14 @@ export default function Ventas() {
   async function abrirDetalle(venta) {
     setVentaAbierta(venta.id);
     setDetalle(null);
-    const { data } = await supabase
-      .from('venta_items')
-      .select('*, producto:productos(nombre), variante:variantes_producto(atributo1_valor, atributo2_valor)')
-      .eq('venta_id', venta.id);
-    setDetalle({ venta, items: data || [] });
+    const [itemsRes, pagosRes] = await Promise.all([
+      supabase
+        .from('venta_items')
+        .select('*, producto:productos(nombre), variante:variantes_producto(atributo1_valor, atributo2_valor)')
+        .eq('venta_id', venta.id),
+      supabase.from('venta_pagos').select('*').eq('venta_id', venta.id).order('creado_en'),
+    ]);
+    setDetalle({ venta, items: itemsRes.data || [], pagos: pagosRes.data || [] });
   }
 
   // Recibe el motivo como parámetro en vez de pedirlo con window.prompt():
@@ -138,6 +141,7 @@ export default function Ventas() {
           <DetalleVenta
             venta={detalle.venta}
             items={detalle.items}
+            pagos={detalle.pagos}
             onAnular={anular}
             anulando={anulando}
             error={errorAnular}
@@ -202,7 +206,7 @@ export default function Ventas() {
                   {v.estado === 'anulada' && <span className="ml-1.5 text-xs text-danger">· anulada</span>}
                 </p>
                 <p className="text-xs text-muted">
-                  {fechaHoraTexto(v.creado_en)} · {METODOS_LABEL[v.metodo_pago] || v.metodo_pago}
+                  {fechaHoraTexto(v.creado_en)} · {v.metodo_pago ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago : 'Pago dividido'}
                 </p>
               </div>
             </div>
@@ -216,7 +220,7 @@ export default function Ventas() {
   );
 }
 
-function DetalleVenta({ venta, items, onAnular, anulando, error }) {
+function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
 
@@ -270,10 +274,18 @@ function DetalleVenta({ venta, items, onAnular, anulando, error }) {
             <span>Total</span>
             <span className="font-mono">Gs. {Number(venta.total).toLocaleString('es-PY')}</span>
           </div>
-          <div className="flex justify-between text-muted">
-            <span>Método de pago</span>
-            <span>{METODOS_LABEL[venta.metodo_pago] || venta.metodo_pago}</span>
-          </div>
+        </div>
+
+        <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            {pagos.length > 1 ? 'Pago dividido' : 'Método de pago'}
+          </p>
+          {pagos.map((p) => (
+            <div key={p.id} className="flex justify-between text-muted">
+              <span>{METODOS_LABEL[p.metodo_pago] || p.metodo_pago}</span>
+              <span className="font-mono">Gs. {Number(p.monto).toLocaleString('es-PY')}</span>
+            </div>
+          ))}
         </div>
 
         {venta.estado === 'anulada' && venta.anulada_motivo && (

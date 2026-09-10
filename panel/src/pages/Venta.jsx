@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ShoppingCart, Check } from 'lucide-react';
+import { Search, ShoppingCart, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import CarritoItem from '../components/CarritoItem';
@@ -22,7 +22,12 @@ export default function Venta() {
   const [cajaSesionId, setCajaSesionId] = useState(null);
   const [productoParaVariante, setProductoParaVariante] = useState(null);
   const [telefonoCliente, setTelefonoCliente] = useState('');
-  const [metodoPago, setMetodoPago] = useState('efectivo');
+  // Un solo pago es el 90% de los casos: acá vive siempre como una lista,
+  // pero mientras tenga un solo elemento el monto ni se muestra — se
+  // asume el total completo, sin pedirle nada extra al cajero. Recién al
+  // "dividir" aparecen los montos editables por método.
+  const [pagos, setPagos] = useState([{ id: 1, metodo: 'efectivo', monto: '' }]);
+  const idPagoRef = useRef(2);
   const [cobrando, setCobrando] = useState(false);
   const [ventaConfirmada, setVentaConfirmada] = useState(null);
   const [error, setError] = useState(null);
@@ -131,6 +136,34 @@ export default function Venta() {
 
   const subtotal = carrito.reduce((acc, i) => acc + i.cantidad * i.precio_unitario - i.descuento, 0);
 
+  const dividido = pagos.length > 1;
+  const sumaPagos = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const diferenciaPagos = subtotal - sumaPagos; // > 0: falta cobrar · < 0: se pasó · 0: coincide
+
+  function cambiarMetodoPago(id, metodo) {
+    setPagos((prev) => prev.map((p) => (p.id === id ? { ...p, metodo } : p)));
+  }
+
+  function cambiarMontoPago(id, monto) {
+    setPagos((prev) => prev.map((p) => (p.id === id ? { ...p, monto } : p)));
+  }
+
+  function agregarMetodoPago() {
+    setPagos((prev) => {
+      // La primera vez que se divide, el pago único deja de ser implícito
+      // y pasa a valer el total explícitamente — recién ahí el cajero
+      // reparte entre los dos.
+      const base = prev.length === 1 ? [{ ...prev[0], monto: String(subtotal) }] : prev;
+      const usados = new Set(base.map((p) => p.metodo));
+      const siguiente = METODOS.find((m) => !usados.has(m.id))?.id || METODOS[0].id;
+      return [...base, { id: idPagoRef.current++, metodo: siguiente, monto: '' }];
+    });
+  }
+
+  function quitarMetodoPago(id) {
+    setPagos((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.id !== id)));
+  }
+
   async function resolverCliente() {
     const telefono = telefonoCliente.trim();
     if (!telefono) return null;
@@ -153,6 +186,14 @@ export default function Venta() {
 
   async function cobrar() {
     if (carrito.length === 0 || cobrandoRef.current) return;
+    if (dividido && diferenciaPagos !== 0) {
+      setError(
+        diferenciaPagos > 0
+          ? `Todavía falta cobrar Gs. ${diferenciaPagos.toLocaleString('es-PY')}.`
+          : `Los pagos suman Gs. ${Math.abs(diferenciaPagos).toLocaleString('es-PY')} de más.`
+      );
+      return;
+    }
     cobrandoRef.current = true;
     setError(null);
     setCobrando(true);
@@ -169,10 +210,17 @@ export default function Venta() {
         descuento: i.descuento,
       }));
 
+      // Con un solo método, el monto es el total completo — no depende
+      // de lo que haya (o no) en pagos[0].monto, que ni se le pide al
+      // cajero en ese caso.
+      const pagosPayload = dividido
+        ? pagos.map((p) => ({ metodo_pago: p.metodo, monto: Number(p.monto) || 0 }))
+        : [{ metodo_pago: pagos[0].metodo, monto: subtotal }];
+
       const { data: ventaId, error: errRpc } = await supabase.rpc('fn_crear_venta', {
         p_negocio_id: negocio.id,
         p_cliente_id: clienteId,
-        p_metodo_pago: metodoPago,
+        p_pagos: pagosPayload,
         p_canal: 'local',
         p_caja_sesion_id: cajaSesionId, // null si no hay caja abierta — no bloqueamos la venta por eso
         p_descuento_total: 0,
@@ -192,6 +240,7 @@ export default function Venta() {
       setVentaConfirmada({ id: ventaId, total: Number(venta?.total ?? subtotal) });
       setCarrito([]);
       setTelefonoCliente('');
+      setPagos([{ id: idPagoRef.current++, metodo: 'efectivo', monto: '' }]);
       cargarProductos(); // refresca stock mostrado
     } catch (err) {
       console.error(err);
@@ -272,7 +321,7 @@ export default function Venta() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carrito, cobrando, resultados, indiceSeleccionado, productoParaVariante, busqueda]);
+  }, [carrito, cobrando, resultados, indiceSeleccionado, productoParaVariante, busqueda, pagos]);
 
   if (ventaConfirmada) {
     return (
@@ -359,19 +408,78 @@ export default function Venta() {
             className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
 
-          <div className="flex gap-2">
-            {METODOS.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setMetodoPago(m.id)}
-                className={`flex-1 rounded-xl py-2 text-xs font-medium ${
-                  metodoPago === m.id ? 'bg-accent text-white' : 'bg-surface text-muted'
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          {!dividido ? (
+            <>
+              <div className="flex gap-2">
+                {METODOS.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => cambiarMetodoPago(pagos[0].id, m.id)}
+                    className={`flex-1 rounded-xl py-2 text-xs font-medium ${
+                      pagos[0].metodo === m.id ? 'bg-accent text-white' : 'bg-surface text-muted'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              {carrito.length > 0 && (
+                <button type="button" onClick={agregarMetodoPago} className="text-xs font-medium text-accent">
+                  + Dividir el pago entre varios métodos
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2 rounded-xl bg-surface p-3 shadow-card">
+              {pagos.map((p) => (
+                <div key={p.id} className="flex items-center gap-2">
+                  <select
+                    value={p.metodo}
+                    onChange={(e) => cambiarMetodoPago(p.id, e.target.value)}
+                    className="flex-1 rounded-lg border border-line bg-base px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    {METODOS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="Gs."
+                    value={p.monto}
+                    onChange={(e) => cambiarMontoPago(p.id, e.target.value)}
+                    className="w-28 rounded-lg border border-line bg-base px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-accent"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => quitarMetodoPago(p.id)}
+                    className="shrink-0 rounded-full p-1.5 text-muted active:text-danger"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+
+              <div className="flex items-center justify-between pt-1">
+                {pagos.length < METODOS.length ? (
+                  <button type="button" onClick={agregarMetodoPago} className="text-xs font-medium text-accent">
+                    + Agregar otro método
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <p className={`text-xs font-medium ${diferenciaPagos === 0 ? 'text-accent' : 'text-danger'}`}>
+                  {diferenciaPagos === 0
+                    ? 'Coincide con el total ✓'
+                    : diferenciaPagos > 0
+                    ? `Falta Gs. ${diferenciaPagos.toLocaleString('es-PY')}`
+                    : `Sobra Gs. ${Math.abs(diferenciaPagos).toLocaleString('es-PY')}`}
+                </p>
+              </div>
+            </div>
+          )}
 
           {error && <p className="text-sm text-danger">{error}</p>}
 
@@ -384,7 +492,7 @@ export default function Venta() {
             </div>
             <button
               onClick={cobrar}
-              disabled={cobrando}
+              disabled={cobrando || (dividido && diferenciaPagos !== 0)}
               className="rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white active:scale-[0.98] disabled:opacity-60"
             >
               {cobrando ? 'Cobrando…' : 'Cobrar (F2)'}
