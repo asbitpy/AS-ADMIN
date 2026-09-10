@@ -114,6 +114,7 @@ Pendiente para cerrar la Fase 1:
 - [ ] Medir la métrica estrella durante el piloto: **tasa de ausencias antes vs. después**
 - [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc. — tu especialidad)
 - [ ] Material de venta con las métricas reales del piloto para salir a buscar los clientes 2-5
+- [ ] Manual de uso del panel para el dueño/equipo — descargable o como link directo, para que puedan ver cómo se usa cada pantalla sin tener que preguntar cada cosa
 
 ## 10. Operación continua
 
