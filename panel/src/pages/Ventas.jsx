@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Receipt, Ban } from 'lucide-react';
+import { ChevronLeft, Receipt, Ban, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
@@ -29,6 +29,8 @@ const METODOS_LABEL = {
   qr: 'QR',
   credito: 'Crédito',
 };
+
+const METODOS_PAGO = ['efectivo', 'transferencia', 'tarjeta', 'qr'];
 
 function fechaHoraTexto(fecha) {
   return new Intl.DateTimeFormat('es-PY', {
@@ -62,6 +64,9 @@ export default function Ventas() {
   const [anulando, setAnulando] = useState(false);
   const anulandoRef = useRef(false);
   const [errorAnular, setErrorAnular] = useState(null);
+  const [procesandoReserva, setProcesandoReserva] = useState(false);
+  const procesandoReservaRef = useRef(false);
+  const [errorReserva, setErrorReserva] = useState(null);
 
   const tickVentas = useRealtimeTick('ventas', negocio?.id);
 
@@ -124,7 +129,62 @@ export default function Ventas() {
     cargar();
   }
 
-  const completadas = useMemo(() => ventas.filter((v) => v.estado !== 'anulada'), [ventas]);
+  // Cierra un pedido reservado por WhatsApp: registra el cobro real (acá
+  // recién se genera el ingreso, no cuando se apartó el producto) y no
+  // vuelve a tocar el stock — ya se descontó al reservar.
+  async function cobrarReserva(venta, metodoPago) {
+    if (procesandoReservaRef.current) return;
+    procesandoReservaRef.current = true;
+    setErrorReserva(null);
+    setProcesandoReserva(true);
+
+    const { data: sesion } = await supabase
+      .from('caja_sesiones')
+      .select('id')
+      .eq('negocio_id', venta.negocio_id)
+      .eq('estado', 'abierta')
+      .maybeSingle();
+
+    const { error } = await supabase.rpc('fn_completar_reserva', {
+      p_venta_id: venta.id,
+      p_pagos: [{ metodo_pago: metodoPago, monto: venta.total }],
+      p_caja_sesion_id: sesion?.id || null,
+    });
+    procesandoReservaRef.current = false;
+    setProcesandoReserva(false);
+
+    if (error) {
+      setErrorReserva('No se pudo cobrar: ' + error.message);
+      return;
+    }
+    setVentaAbierta(null);
+    cargar();
+  }
+
+  // El cliente no retiró, o se arrepintió: devuelve el stock. Nunca genera
+  // un movimiento financiero — una reserva nunca generó ingreso.
+  async function cancelarReserva(venta, motivo) {
+    if (procesandoReservaRef.current) return;
+    procesandoReservaRef.current = true;
+    setErrorReserva(null);
+    setProcesandoReserva(true);
+    const { error } = await supabase.rpc('fn_cancelar_reserva', {
+      p_venta_id: venta.id,
+      p_motivo: motivo || 'Cliente no retiró / canceló',
+    });
+    procesandoReservaRef.current = false;
+    setProcesandoReserva(false);
+
+    if (error) {
+      setErrorReserva('No se pudo cancelar: ' + error.message);
+      return;
+    }
+    setVentaAbierta(null);
+    cargar();
+  }
+
+  const completadas = useMemo(() => ventas.filter((v) => v.estado === 'completada'), [ventas]);
+  const reservadas = useMemo(() => ventas.filter((v) => v.estado === 'reservada'), [ventas]);
   const totalVendido = completadas.reduce((acc, v) => acc + Number(v.total), 0);
   const ticketPromedio = completadas.length ? Math.round(totalVendido / completadas.length) : 0;
 
@@ -148,6 +208,10 @@ export default function Ventas() {
             onAnular={anular}
             anulando={anulando}
             error={errorAnular}
+            onCobrarReserva={cobrarReserva}
+            onCancelarReserva={cancelarReserva}
+            procesandoReserva={procesandoReserva}
+            errorReserva={errorReserva}
           />
         )}
       </div>
@@ -178,6 +242,15 @@ export default function Ventas() {
         <MetricPill label="Ticket prom." value={formatoGsCompacto(ticketPromedio)} compact />
       </div>
 
+      {reservadas.length > 0 && (
+        <div className="flex items-center gap-2 rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">
+          <Clock size={16} />
+          {reservadas.length === 1
+            ? '1 pedido por WhatsApp pendiente de retiro.'
+            : `${reservadas.length} pedidos por WhatsApp pendientes de retiro.`}
+        </div>
+      )}
+
       {cargando && <p className="pt-6 text-center text-sm text-muted">Cargando…</p>}
 
       {!cargando && ventas.length === 0 && (
@@ -196,9 +269,15 @@ export default function Ventas() {
             }`}
           >
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft">
+              <span
+                className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                  v.estado === 'reservada' ? 'bg-amber-soft' : 'bg-accent-soft'
+                }`}
+              >
                 {v.estado === 'anulada' ? (
                   <Ban size={16} className="text-danger" />
+                ) : v.estado === 'reservada' ? (
+                  <Clock size={16} className="text-amber" />
                 ) : (
                   <Receipt size={16} className="text-accent" />
                 )}
@@ -207,9 +286,15 @@ export default function Ventas() {
                 <p className="text-sm font-medium text-ink">
                   {v.cliente?.nombre || 'Cliente sin registrar'}
                   {v.estado === 'anulada' && <span className="ml-1.5 text-xs text-danger">· anulada</span>}
+                  {v.estado === 'reservada' && <span className="ml-1.5 text-xs text-amber">· pendiente de retiro</span>}
                 </p>
                 <p className="text-xs text-muted">
-                  {fechaHoraTexto(v.creado_en)} · {v.metodo_pago ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago : 'Pago dividido'}
+                  {fechaHoraTexto(v.creado_en)} ·{' '}
+                  {v.estado === 'reservada'
+                    ? 'Pedido por WhatsApp'
+                    : v.metodo_pago
+                      ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago
+                      : 'Pago dividido'}
                 </p>
               </div>
             </div>
@@ -223,9 +308,22 @@ export default function Ventas() {
   );
 }
 
-function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
+function DetalleVenta({
+  venta,
+  items,
+  pagos = [],
+  onAnular,
+  anulando,
+  error,
+  onCobrarReserva,
+  onCancelarReserva,
+  procesandoReserva,
+  errorReserva,
+}) {
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
+  const [cancelandoReserva, setCancelandoReserva] = useState(false);
+  const [motivoReserva, setMotivoReserva] = useState('');
 
   return (
     <div className="space-y-4">
@@ -237,8 +335,18 @@ function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
               Anulada
             </span>
           )}
+          {venta.estado === 'reservada' && (
+            <span className="rounded-full bg-amber-soft px-2.5 py-0.5 text-xs font-medium text-amber">
+              Pendiente de retiro
+            </span>
+          )}
         </div>
         <p className="text-xs text-muted">{fechaHoraTexto(venta.creado_en)}</p>
+        {venta.estado === 'reservada' && venta.reservado_hasta && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-amber">
+            <Clock size={12} /> Apartado hasta {fechaHoraTexto(venta.reservado_hasta)} — si no lo retira, se libera solo
+          </p>
+        )}
 
         <div className="mt-3 space-y-1.5 border-t border-line pt-3">
           {items.map((it) => (
@@ -279,17 +387,19 @@ function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
           </div>
         </div>
 
-        <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            {pagos.length > 1 ? 'Pago dividido' : 'Método de pago'}
-          </p>
-          {pagos.map((p) => (
-            <div key={p.id} className="flex justify-between text-muted">
-              <span>{METODOS_LABEL[p.metodo_pago] || p.metodo_pago}</span>
-              <span className="font-mono">Gs. {Number(p.monto).toLocaleString('es-PY')}</span>
-            </div>
-          ))}
-        </div>
+        {pagos.length > 0 && (
+          <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
+              {pagos.length > 1 ? 'Pago dividido' : 'Método de pago'}
+            </p>
+            {pagos.map((p) => (
+              <div key={p.id} className="flex justify-between text-muted">
+                <span>{METODOS_LABEL[p.metodo_pago] || p.metodo_pago}</span>
+                <span className="font-mono">Gs. {Number(p.monto).toLocaleString('es-PY')}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {venta.estado === 'anulada' && venta.anulada_motivo && (
           <p className="mt-3 rounded-lg bg-danger-soft p-2.5 text-xs text-danger">
@@ -299,8 +409,9 @@ function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
       </div>
 
       {error && <p className="rounded-xl bg-danger-soft p-3 text-xs text-danger">{error}</p>}
+      {errorReserva && <p className="rounded-xl bg-danger-soft p-3 text-xs text-danger">{errorReserva}</p>}
 
-      {venta.estado !== 'anulada' && !confirmando && (
+      {venta.estado === 'completada' && !confirmando && (
         <button
           onClick={() => setConfirmando(true)}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger"
@@ -336,6 +447,63 @@ function DetalleVenta({ venta, items, pagos = [], onAnular, anulando, error }) {
               className="flex-1 rounded-lg bg-danger py-2 text-xs font-medium text-white disabled:opacity-50"
             >
               {anulando ? 'Anulando…' : 'Sí, anular'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {venta.estado === 'reservada' && !cancelandoReserva && (
+        <div className="space-y-2">
+          <p className="text-center text-xs text-muted">El cliente llegó y quiere pagar. Elegí el método:</p>
+          <div className="flex flex-wrap gap-2">
+            {METODOS_PAGO.map((m) => (
+              <button
+                key={m}
+                onClick={() => onCobrarReserva(venta, m)}
+                disabled={procesandoReserva}
+                className="flex-1 min-w-[45%] rounded-xl bg-brand py-3 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                {procesandoReserva ? '…' : METODOS_LABEL[m]}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setCancelandoReserva(true)}
+            disabled={procesandoReserva}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 py-3 text-sm font-medium text-danger disabled:opacity-50"
+          >
+            <Ban size={16} /> Cancelar pedido (no vino / se arrepintió)
+          </button>
+        </div>
+      )}
+
+      {cancelandoReserva && (
+        <div className="space-y-2 rounded-xl bg-danger-soft p-3">
+          <p className="text-xs text-danger">¿Por qué cancelás este pedido? (queda guardado, es opcional)</p>
+          <input
+            autoFocus
+            value={motivoReserva}
+            onChange={(e) => setMotivoReserva(e.target.value)}
+            placeholder="Ej: no vino a retirarlo"
+            className="w-full rounded-lg border border-danger/30 bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-danger"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setCancelandoReserva(false);
+                setMotivoReserva('');
+              }}
+              disabled={procesandoReserva}
+              className="flex-1 rounded-lg border border-line bg-surface py-2 text-xs font-medium text-ink disabled:opacity-50"
+            >
+              Volver
+            </button>
+            <button
+              onClick={() => onCancelarReserva(venta, motivoReserva)}
+              disabled={procesandoReserva}
+              className="flex-1 rounded-lg bg-danger py-2 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {procesandoReserva ? 'Cancelando…' : 'Sí, cancelar'}
             </button>
           </div>
         </div>

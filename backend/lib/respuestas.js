@@ -73,6 +73,35 @@ function sinTurnoProximo() {
   return 'No encontré un turno próximo a tu nombre 🤔 ¿Querés agendar uno?';
 }
 
+function mensajeCatalogo(productos) {
+  if (!productos.length) return 'Todavía no tengo el catálogo cargado, ya le aviso al equipo 🙌';
+  const lineas = productos.map(
+    (p) => `🔹 ${p.nombre} - Gs. ${Number(p.precio).toLocaleString('es-PY')}`
+  );
+  return `Esto es lo que tenemos:\n\n${lineas.join('\n')}\n\n¿Te interesa alguno? Decime el nombre y te digo si hay stock.`;
+}
+
+function productoNoEncontrado() {
+  return 'No encontré ese producto 🤔 ¿Querés ver el catálogo completo?';
+}
+
+function mensajeStockSinVariantes(producto) {
+  if (producto.stock <= 0) return `${producto.nombre} está sin stock por ahora 😔`;
+  return `Sí, tenemos ${producto.nombre} 🙌 (${producto.stock} disponibles) - Gs. ${Number(producto.precio).toLocaleString('es-PY')}`;
+}
+
+function mensajeStockVariante(producto, variante) {
+  const detalle = descripcionVariante(variante);
+  if (variante.stock <= 0) return `${producto.nombre} (${detalle}) está sin stock por ahora 😔`;
+  const precio = Number(variante.precio_override ?? producto.precio);
+  return `Sí, tenemos ${producto.nombre} (${detalle}) 🙌 (${variante.stock} disponibles) - Gs. ${precio.toLocaleString('es-PY')}`;
+}
+
+function descripcionVariante(variante) {
+  const partes = [variante.atributo1_valor, variante.atributo2_valor].filter(Boolean);
+  return partes.join(' / ') || 'única opción';
+}
+
 module.exports = {
   mensajeBienvenida,
   mensajePrecios,
@@ -90,4 +119,8 @@ module.exports = {
   turnoConfirmadoOk,
   turnoCancelado,
   sinTurnoProximo,
+  mensajeCatalogo,
+  productoNoEncontrado,
+  mensajeStockSinVariantes,
+  mensajeStockVariante,
 };

@@ -141,7 +141,9 @@ Pendiente para cerrar la Fase 1:
       la variante
 - [x] Panel: apertura y cierre de caja con arqueo (`CajaBar.jsx`) — monto inicial, gastos/retiros durante el día, diferencia entre caja esperada y contada al cerrar. No bloquea la venta si está cerrada
 - [ ] Panel: vista "Hoy" para negocios retail (resumen de caja del día) — hoy un negocio sin `agenda` cae directo a Productos
-- [ ] Bot de WhatsApp: nuevas intenciones (`consultar_stock`, `hacer_pedido`) y su árbol de respuesta
+- [x] Bot de WhatsApp: intenciones `consultar_stock` y `ver_catalogo` (solo lectura, Etapa 1 de `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md`) — menú de bienvenida ahora se arma según `modulos_activos`
+- [x] Bot de WhatsApp: intenciones `hacer_pedido` y `cancelar_pedido` con reserva de stock (Etapa 2) — migración `013_reservas_whatsapp.sql` corrida y verificada en Supabase
+- [x] Panel: acción para que el cajero complete (`fn_completar_reserva`) o cancele (`fn_cancelar_reserva`) a mano un pedido reservado por WhatsApp cuando el cliente llega al local
 - [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
 - [ ] Proveedores y Compras (ABM + órdenes de compra)
 - [ ] Usuarios multiusuario con roles y permisos (admin/gerente/vendedor/cajero)

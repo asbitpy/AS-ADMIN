@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { handleIncomingMessage } = require('./lib/messageHandler');
 const { procesarRecordatorios } = require('./lib/recordatorios');
+const { liberarReservasVencidas } = require('./lib/reservas');
 
 const app = express();
 app.use(express.json());
@@ -47,6 +48,17 @@ if (process.env.RECORDATORIOS_ACTIVOS !== 'false') {
   setInterval(() => {
     procesarRecordatorios().catch((err) =>
       console.error('Error en procesador de recordatorios:', err)
+    );
+  }, 5 * 60 * 1000);
+}
+
+// Libera el stock de las reservas de pedido por WhatsApp que vencieron
+// sin retiro. Mismo NOTA que arriba: para varios servidores, mover a un
+// cron externo para que no corra duplicado en cada instancia.
+if (process.env.RESERVAS_ACTIVAS !== 'false') {
+  setInterval(() => {
+    liberarReservasVencidas().catch((err) =>
+      console.error('Error liberando reservas vencidas:', err)
     );
   }, 5 * 60 * 1000);
 }

@@ -5,6 +5,7 @@ const { credencialesDeNegocio } = require('./credenciales');
 const { responderTexto, responderBotones, responderLista } = require('./responder');
 const respuestas = require('./respuestas');
 const flujoAgendar = require('./flujoAgendar');
+const flujoPedido = require('./flujoPedido');
 const { formatearFranjaLarga } = require('./agenda');
 
 // Entradas que se resuelven SIN llamar a Claude (eficiencia: los botones
@@ -12,6 +13,7 @@ const { formatearFranjaLarga } = require('./agenda');
 const MAPA_DETERMINISTICO = {
   menu_agendar: 'agendar_turno',
   menu_precios: 'ver_precios',
+  menu_catalogo: 'ver_catalogo',
   menu_ubicacion: 'ver_ubicacion',
   menu_humano: 'hablar_con_humano',
   rec_confirmo: 'confirmar_turno',
@@ -71,9 +73,20 @@ async function handleIncomingMessage(rawBody) {
   let intencion = MAPA_DETERMINISTICO[entrada] || null;
   let clasificacion = null;
 
-  // 2) ¿Es una respuesta de un paso del flujo de agendado? (sin Claude)
+  // 2) ¿Es una respuesta de un paso de un flujo guiado en curso? (sin Claude)
   if (!intencion && /^(serv_|franja_|pq_|le_)/.test(entrada)) {
     const manejado = await flujoAgendar.continuar({
+      entrada,
+      clasificacion: null,
+      negocio,
+      cliente,
+      conversacion,
+      to: msg.from,
+    });
+    if (manejado) return;
+  }
+  if (!intencion && /^(prod_|var_|pedido_)/.test(entrada)) {
+    const manejado = await flujoPedido.continuar({
       entrada,
       clasificacion: null,
       negocio,
@@ -86,12 +99,15 @@ async function handleIncomingMessage(rawBody) {
 
   // 3) Texto libre: clasificamos con Claude (una sola llamada por mensaje).
   if (!intencion) {
-    const servicios = await obtenerServicios(negocio.id);
+    const modulos = negocio.modulos_activos || ['agenda'];
+    const servicios = modulos.includes('agenda') ? await obtenerServicios(negocio.id) : [];
+    const productos = modulos.includes('pos') ? await obtenerProductos(negocio.id) : [];
     const historial = await obtenerUltimosMensajes(conversacion.id, 6);
     clasificacion = await clasificarIntencion({
       mensaje: entrada,
       negocio,
       servicios,
+      productos,
       historialReciente: historial,
     });
     intencion = clasificacion.intencion;
@@ -99,15 +115,26 @@ async function handleIncomingMessage(rawBody) {
 
   // 4) Escapes que cortan cualquier flujo en curso.
   if (['contenido_medico', 'reclamo', 'hablar_con_humano'].includes(intencion)) {
-    await flujoAgendar.limpiar(conversacion.id);
+    await flujoAgendar.limpiar(conversacion.id); // limpia el contexto, sea cual sea el flujo activo
     await derivarAHumano(conversacion.id, intencion === 'reclamo' ? 'alta' : 'normal');
     return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeDerivadoHumano(), intencion);
   }
 
   // 5) Si hay un flujo en curso, dejamos que lo continúe con el texto libre
-  //    (ej. el cliente escribe su nombre, o "¿tenés el jueves?").
-  if (conversacion.contexto?.flujo) {
+  //    (ej. el cliente escribe su nombre, "¿tenés el jueves?", o un número
+  //    de unidades en el flujo de pedido).
+  if (conversacion.contexto?.flujo === 'agendar') {
     const manejado = await flujoAgendar.continuar({
+      entrada,
+      clasificacion,
+      negocio,
+      cliente,
+      conversacion,
+      to: msg.from,
+    });
+    if (manejado) return;
+  } else if (conversacion.contexto?.flujo === 'pedido') {
+    const manejado = await flujoPedido.continuar({
       entrada,
       clasificacion,
       negocio,
@@ -138,6 +165,28 @@ async function handleIncomingMessage(rawBody) {
     case 'cancelar_turno':
     case 'reprogramar_turno':
       return gestionarTurnoExistente({ intencion, negocio, cliente, conversacion, to: msg.from });
+
+    case 'ver_catalogo': {
+      const productos = await obtenerProductos(negocio.id);
+      return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeCatalogo(productos), intencion);
+    }
+
+    case 'consultar_stock':
+      return responderConsultaStock({ negocio, conversacion, to: msg.from, datos: clasificacion?.datos_extraidos || {} });
+
+    case 'hacer_pedido': {
+      const datos = clasificacion?.datos_extraidos || {};
+      return flujoPedido.iniciar({
+        negocio,
+        conversacion,
+        to: msg.from,
+        productoNombre: datos.producto || null,
+        varianteTexto: datos.variante || null,
+      });
+    }
+
+    case 'cancelar_pedido':
+      return cancelarPedidoExistente({ negocio, cliente, conversacion, to: msg.from });
 
     default:
       return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeNoEntendido(), 'no_entendido');
@@ -184,6 +233,87 @@ async function gestionarTurnoExistente({ intencion, negocio, cliente, conversaci
 }
 
 // --------------------------------------------------------------------
+// Retail: consulta de stock
+// --------------------------------------------------------------------
+
+async function responderConsultaStock({ negocio, conversacion, to, datos }) {
+  const productos = await obtenerProductos(negocio.id);
+  const producto = productos.find((p) => p.nombre.toLowerCase() === (datos.producto || '').toLowerCase());
+
+  if (!producto) {
+    return responderTexto(negocio.wa, conversacion.id, to, respuestas.productoNoEncontrado(), 'consultar_stock');
+  }
+
+  if (!producto.tiene_variantes) {
+    await responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeStockSinVariantes(producto), 'consultar_stock');
+    if (producto.stock > 0) {
+      await flujoPedido.ofrecerApartar({ negocio, conversacion, to, productoId: producto.id, varianteId: null });
+    }
+    return;
+  }
+
+  const { data: variantes } = await supabase
+    .from('variantes_producto')
+    .select('*')
+    .eq('producto_id', producto.id)
+    .eq('activo', true);
+
+  const variantesDisponibles = variantes || [];
+  const variantePedida = (datos.variante || '').toLowerCase().trim();
+
+  const match = variantePedida
+    ? variantesDisponibles.find(
+        (v) =>
+          v.atributo1_valor?.toLowerCase() === variantePedida || v.atributo2_valor?.toLowerCase() === variantePedida
+      )
+    : null;
+
+  if (match) {
+    await responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeStockVariante(producto, match), 'consultar_stock');
+    if (match.stock > 0) {
+      await flujoPedido.ofrecerApartar({ negocio, conversacion, to, productoId: producto.id, varianteId: match.id });
+    }
+    return;
+  }
+
+  // No especificó variante, o la que pidió no existe: le mostramos las
+  // opciones como lista interactiva — un clic ya deja armado el pedido.
+  return flujoPedido.ofrecerVariantes({ negocio, conversacion, to, producto, variantes: variantesDisponibles });
+}
+
+// --------------------------------------------------------------------
+// Retail: cancelar un pedido reservado
+// --------------------------------------------------------------------
+
+async function cancelarPedidoExistente({ negocio, cliente, conversacion, to }) {
+  const { data: venta } = await supabase
+    .from('ventas')
+    .select('id')
+    .eq('negocio_id', negocio.id)
+    .eq('cliente_id', cliente.id)
+    .eq('estado', 'reservada')
+    .order('creado_en', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!venta) {
+    return responderTexto(negocio.wa, conversacion.id, to, 'No encontré ningún pedido tuyo pendiente de retiro 🤔', 'cancelar_pedido');
+  }
+
+  const { error } = await supabase.rpc('fn_cancelar_reserva', {
+    p_venta_id: venta.id,
+    p_motivo: 'Cliente canceló por WhatsApp',
+  });
+
+  if (error) {
+    console.error('Error cancelando reserva:', error);
+    return responderTexto(negocio.wa, conversacion.id, to, 'Uy, tuve un problema cancelándolo. Ya le aviso al equipo 🙏', 'cancelar_pedido');
+  }
+
+  return responderTexto(negocio.wa, conversacion.id, to, 'Listo, cancelé tu pedido. ¡Gracias por avisar! 🙌', 'cancelar_pedido');
+}
+
+// --------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------
 
@@ -194,18 +324,28 @@ function esSaludoSimple(texto) {
 }
 
 async function enviarMenuBienvenida(negocio, conversacion, to) {
+  const modulos = negocio.modulos_activos || ['agenda'];
+  const opciones = [];
+
+  if (modulos.includes('agenda')) {
+    opciones.push({ id: 'menu_agendar', title: '📅 Agendar turno' });
+  }
+  if (modulos.includes('pos')) {
+    opciones.push({ id: 'menu_catalogo', title: '🛍️ Ver productos' });
+  }
+  if (modulos.includes('agenda')) {
+    opciones.push({ id: 'menu_precios', title: '💰 Precios y servicios' });
+  }
+  opciones.push({ id: 'menu_ubicacion', title: '📍 Ubicación y horarios' });
+  opciones.push({ id: 'menu_humano', title: '🙋 Hablar con alguien' });
+
   return responderLista(
     negocio.wa,
     conversacion.id,
     to,
     respuestas.mensajeBienvenida(negocio),
     'Ver opciones',
-    [
-      { id: 'menu_agendar', title: '📅 Agendar turno' },
-      { id: 'menu_precios', title: '💰 Precios y servicios' },
-      { id: 'menu_ubicacion', title: '📍 Ubicación y horarios' },
-      { id: 'menu_humano', title: '🙋 Hablar con alguien' },
-    ],
+    opciones,
     'bienvenida'
   );
 }
@@ -237,6 +377,15 @@ async function obtenerNegocioPorNumero(phoneNumberId) {
 async function obtenerServicios(negocioId) {
   const { data } = await supabase
     .from('servicios')
+    .select('*')
+    .eq('negocio_id', negocioId)
+    .eq('activo', true);
+  return data || [];
+}
+
+async function obtenerProductos(negocioId) {
+  const { data } = await supabase
+    .from('productos')
     .select('*')
     .eq('negocio_id', negocioId)
     .eq('activo', true);
