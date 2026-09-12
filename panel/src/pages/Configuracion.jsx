@@ -85,7 +85,7 @@ export default function Configuracion() {
             <input
               value={direccion}
               onChange={(e) => setDireccion(e.target.value)}
-              className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
             <button
               onClick={guardarDireccion}
@@ -119,7 +119,7 @@ export default function Configuracion() {
               placeholder="https://tutienda.com.py"
               value={sitioWeb}
               onChange={(e) => setSitioWeb(e.target.value)}
-              className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
             <button
               onClick={guardarSitioWeb}
@@ -155,7 +155,7 @@ export default function Configuracion() {
             placeholder="Nombre del servicio"
             value={nuevoServicio.nombre}
             onChange={(e) => setNuevoServicio({ ...nuevoServicio, nombre: e.target.value })}
-            className="w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
           />
           <div className="flex gap-2">
             <input
@@ -163,14 +163,14 @@ export default function Configuracion() {
               placeholder="Precio Gs."
               value={nuevoServicio.precio}
               onChange={(e) => setNuevoServicio({ ...nuevoServicio, precio: e.target.value })}
-              className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
             <input
               type="number"
               placeholder="Min."
               value={nuevoServicio.duracion_minutos}
               onChange={(e) => setNuevoServicio({ ...nuevoServicio, duracion_minutos: e.target.value })}
-              className="w-20 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+              className="w-20 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
           <button className="flex w-full items-center justify-center gap-1 rounded-lg bg-accent-soft py-2 text-xs font-medium text-accent">
@@ -200,7 +200,7 @@ export default function Configuracion() {
             type="date"
             value={nuevoFeriado.fecha}
             onChange={(e) => setNuevoFeriado({ ...nuevoFeriado, fecha: e.target.value })}
-            className="flex-1 rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+            className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
           />
           <button className="rounded-lg bg-accent-soft px-3 py-2 text-xs font-medium text-accent">
             <Plus size={14} />

@@ -378,7 +378,7 @@ export default function Finanzas() {
                 placeholder="Monto (Gs.)"
                 value={montoNuevo}
                 onChange={(e) => setMontoNuevo(e.target.value)}
-                className="w-full rounded-xl border border-line px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
 
               <select
@@ -407,7 +407,7 @@ export default function Finanzas() {
                 placeholder="Motivo (opcional)"
                 value={notaNueva}
                 onChange={(e) => setNotaNueva(e.target.value)}
-                className="w-full rounded-xl border border-line px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
 
               {error && <p className="text-sm text-danger">{error}</p>}

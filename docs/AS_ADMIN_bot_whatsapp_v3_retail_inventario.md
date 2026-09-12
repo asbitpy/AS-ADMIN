@@ -91,8 +91,16 @@ El dueño (no el cliente) escribe algo como "cargá 20 unidades más de buzo neg
 |---|---|---|---|
 | 1 | `consultar_stock` + `ver_catalogo` | Ninguno — solo lectura | ✅ Construido |
 | 2 | `hacer_pedido` + `cancelar_pedido` con reserva | Medio — primera escritura real desde el bot | ✅ Construido (falta correr la migración y cerrar el loop en el panel) |
-| 3 | Alerta automática de stock bajo al dueño | Bajo — solo notificación | Pendiente |
+| 3 | Alerta automática de stock bajo al dueño | Bajo — solo notificación | ✅ Construida (falta config + plantilla de Meta, ver abajo) |
 | 4 | Reposición manual por WhatsApp (con confirmación) | Medio — escritura, pero siempre confirmada por el dueño | Pendiente |
+
+**Etapa 3, estado real al cerrar esta ronda:**
+- Migración `014_alertas_stock.sql`: agrega `productos.alerta_stock_baja_enviada` (evita repetir el aviso mientras sigue bajo, se resetea solo al recuperarse) y `negocios_credenciales.template_alerta_stock`. **Todavía no se corrió en Supabase.**
+- `backend/lib/alertasStock.js` + `server.js`: job cada 5 minutos (mismo patrón que recordatorios/reservas), usa el mismo cálculo de "stock total" que ya usa el panel en `Productos.jsx`.
+- A diferencia de las Etapas 1 y 2 (pura base de datos, se pudieron probar de punta a punta), esta etapa depende de dos cosas que no se pueden verificar desde acá:
+  1. Cargar `negocios.config.telefono_dueno` (el número personal del dueño, no el del negocio) — instrucción en la migración
+  2. Dar de alta y esperar la aprobación de Meta de una plantilla nueva (ej. `alerta_stock_bajo`), igual que las de recordatorios — cargar el nombre en `negocios_credenciales.template_alerta_stock`
+- Sin esos dos pasos, el job corre igual pero no manda nada (deja un warning en el log una sola vez por negocio) — no rompe el resto del bot.
 
 **Etapa 2, estado real al cerrar esta ronda: ✅ construida, corrida y verificada de punta a punta contra la base real.**
 - Migración `013_reservas_whatsapp.sql`: agrega el estado `reservada`, `ventas.reservado_hasta`, y las funciones `fn_crear_reserva` / `fn_completar_reserva` / `fn_cancelar_reserva` / `fn_liberar_reservas_vencidas`. **Corrida en Supabase.**

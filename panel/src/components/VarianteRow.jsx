@@ -19,7 +19,7 @@ export default function VarianteRow({ variante, onChange, onQuitar, soloStock = 
             type="number"
             value={variante.stock}
             onChange={(e) => set('stock', e.target.value)}
-            className="w-16 rounded-lg border border-line px-2 py-1 text-right text-sm outline-none focus:ring-2 focus:ring-accent"
+            className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-right text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
           />
           <button type="button" onClick={onQuitar} className="text-muted active:text-danger">
             <Trash2 size={15} />
@@ -35,20 +35,20 @@ export default function VarianteRow({ variante, onChange, onQuitar, soloStock = 
         placeholder="Talle (M)"
         value={variante.talle}
         onChange={(e) => set('talle', e.target.value)}
-        className="rounded-lg border border-line px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+        className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
       />
       <input
         placeholder="Color"
         value={variante.color}
         onChange={(e) => set('color', e.target.value)}
-        className="rounded-lg border border-line px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+        className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
       />
       <input
         type="number"
         placeholder="Stock"
         value={variante.stock}
         onChange={(e) => set('stock', e.target.value)}
-        className="rounded-lg border border-line px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+        className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
       />
       <button type="button" onClick={onQuitar} className="text-muted active:text-danger">
         <Trash2 size={16} />

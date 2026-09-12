@@ -177,7 +177,7 @@ function FichaCliente({ cliente, onVolver, onActualizado }) {
         <input
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+          className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
         />
 
         <div className="mt-3 flex items-center gap-2 text-sm text-muted">
@@ -192,7 +192,7 @@ function FichaCliente({ cliente, onVolver, onActualizado }) {
           value={notas}
           onChange={(e) => setNotas(e.target.value)}
           rows={2}
-          className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+          className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
         />
 
         <button

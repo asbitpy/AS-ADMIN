@@ -13,6 +13,7 @@ Documento de referencia único: todo lo que hay que ver, tener y hacer para llev
 - [ ] **Meta Business Manager** de AS BIT creado
 - [ ] **Verificación de negocio en Meta** iniciada (⚠️ es el trámite que más demora — arrancarlo primero; pueden pedir registro comercial, factura de servicios, etc.)
 - [ ] App creada en **Meta for Developers** con el producto WhatsApp agregado
+- [ ] ⚠️ Copiar el **App Secret** de esa app (Configuración básica, NO el token de WhatsApp) y cargarlo como `WHATSAPP_APP_SECRET` en el `.env` del backend — sin esto el webhook rechaza todos los mensajes entrantes a propósito (ver `backend/lib/seguridadWebhook.js`)
 - [ ] Número del negocio piloto registrado → anotar su `phone_number_id` y token
 - [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (con payloads `rec_confirmo` / `rec_reprogramar` / `rec_cancelar`)
 - [ ] **API key de Claude** (Anthropic) activa
@@ -144,6 +145,7 @@ Pendiente para cerrar la Fase 1:
 - [x] Bot de WhatsApp: intenciones `consultar_stock` y `ver_catalogo` (solo lectura, Etapa 1 de `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md`) — menú de bienvenida ahora se arma según `modulos_activos`
 - [x] Bot de WhatsApp: intenciones `hacer_pedido` y `cancelar_pedido` con reserva de stock (Etapa 2) — migración `013_reservas_whatsapp.sql` corrida y verificada en Supabase
 - [x] Panel: acción para que el cajero complete (`fn_completar_reserva`) o cancele (`fn_cancelar_reserva`) a mano un pedido reservado por WhatsApp cuando el cliente llega al local
+- [x] Bot de WhatsApp: alerta de stock bajo al dueño (Etapa 3) — falta correr `014_alertas_stock.sql`, cargar `telefono_dueno` por negocio, y dar de alta + esperar aprobación de Meta de la plantilla nueva
 - [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
 - [ ] Proveedores y Compras (ABM + órdenes de compra)
 - [ ] Usuarios multiusuario con roles y permisos (admin/gerente/vendedor/cajero)

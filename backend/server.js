@@ -3,9 +3,14 @@ const express = require('express');
 const { handleIncomingMessage } = require('./lib/messageHandler');
 const { procesarRecordatorios } = require('./lib/recordatorios');
 const { liberarReservasVencidas } = require('./lib/reservas');
+const { procesarAlertasStock } = require('./lib/alertasStock');
+const { verificarFirmaMeta } = require('./lib/seguridadWebhook');
 
 const app = express();
-app.use(express.json());
+// 'verify' guarda el cuerpo crudo antes de parsearlo — hace falta tal
+// cual para calcular la firma HMAC, un JSON re-serializado no da el
+// mismo hash byte a byte.
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
@@ -24,7 +29,7 @@ app.get('/webhook', (req, res) => {
 });
 
 // Acá llegan los mensajes reales de los clientes por WhatsApp.
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', verificarFirmaMeta, async (req, res) => {
   // Respondemos 200 de inmediato: si Meta no recibe respuesta rápida,
   // reintenta el envío. La deduplicación por wa_message_id nos protege
   // igual si un reintento llega a colarse.
@@ -59,6 +64,16 @@ if (process.env.RESERVAS_ACTIVAS !== 'false') {
   setInterval(() => {
     liberarReservasVencidas().catch((err) =>
       console.error('Error liberando reservas vencidas:', err)
+    );
+  }, 5 * 60 * 1000);
+}
+
+// Avisa al dueño por WhatsApp cuando un producto cruza su stock mínimo.
+// Mismo NOTA que arriba: para varios servidores, mover a un cron externo.
+if (process.env.ALERTAS_STOCK_ACTIVAS !== 'false') {
+  setInterval(() => {
+    procesarAlertasStock().catch((err) =>
+      console.error('Error procesando alertas de stock:', err)
     );
   }, 5 * 60 * 1000);
 }

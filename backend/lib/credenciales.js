@@ -23,6 +23,7 @@ async function credencialesDeNegocio(negocio) {
     templates: {
       recordatorio24h: data?.template_recordatorio_24h || process.env.TEMPLATE_RECORDATORIO_24H || null,
       recordatorioHoy: data?.template_recordatorio_hoy || process.env.TEMPLATE_RECORDATORIO_HOY || null,
+      alertaStock: data?.template_alerta_stock || process.env.TEMPLATE_ALERTA_STOCK || null,
     },
   };
 }
