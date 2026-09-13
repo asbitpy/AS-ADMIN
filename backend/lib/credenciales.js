@@ -24,6 +24,7 @@ async function credencialesDeNegocio(negocio) {
       recordatorio24h: data?.template_recordatorio_24h || process.env.TEMPLATE_RECORDATORIO_24H || null,
       recordatorioHoy: data?.template_recordatorio_hoy || process.env.TEMPLATE_RECORDATORIO_HOY || null,
       alertaStock: data?.template_alerta_stock || process.env.TEMPLATE_ALERTA_STOCK || null,
+      derivacionHumano: data?.template_derivacion_humano || process.env.TEMPLATE_DERIVACION_HUMANO || null,
     },
   };
 }

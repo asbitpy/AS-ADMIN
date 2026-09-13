@@ -16,7 +16,7 @@ Documento de referencia único: todo lo que hay que ver, tener y hacer para llev
 - [ ] App creada en **Meta for Developers** con el producto WhatsApp agregado
 - [ ] ⚠️ Copiar el **App Secret** de esa app (Configuración básica, NO el token de WhatsApp) y cargarlo como `WHATSAPP_APP_SECRET` en el `.env` del backend — sin esto el webhook rechaza todos los mensajes entrantes a propósito (ver `backend/lib/seguridadWebhook.js`)
 - [ ] Número del negocio piloto registrado → anotar su `phone_number_id` y token
-- [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (payloads `rec_confirmo`/`rec_reprogramar`/`rec_cancelar`), y la nueva de alerta de stock bajo (`template_alerta_stock`, ver sección 11)
+- [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (payloads `rec_confirmo`/`rec_reprogramar`/`rec_cancelar`), alerta de stock bajo (`template_alerta_stock`, ver sección 11) y aviso de derivación a humano (`template_derivacion_humano`, sección 3)
 - [ ] **API key de Claude** (Anthropic) activa
 - [x] Proyecto de **Supabase** creado (base de datos + auth) — ya en uso, migraciones 001-017 corridas
 - [ ] Hosting elegido para el backend (Railway / Render) y para el panel (Vercel) — el backend **todavía no está desplegado en ningún lado**, solo corrido localmente para pruebas puntuales
@@ -56,7 +56,7 @@ Hecho en el backend actual:
 
 Pendiente para cerrar la Fase 1:
 - [ ] Ofrecer franja liberada al primero de la lista de espera al cancelarse un turno
-- [ ] Notificación al dueño cuando una conversación se deriva a humano — ahora es más simple de construir: ya existe `negocio.config.telefono_dueno` y el patrón de mandarle un WhatsApp directo (`backend/lib/dueno.js`, usado hoy para la reposición de stock)
+- [x] Notificación al dueño cuando una conversación se deriva a humano — usa `negocio.config.telefono_dueno` (mismo campo que las otras alertas). Falta correr `019_notificacion_derivacion.sql` y dar de alta + esperar aprobación de Meta de la plantilla (`template_derivacion_humano`)
 - [ ] Probar de punta a punta con el número de prueba de Meta (10-15 conversaciones simuladas, incluyendo los casos especiales de la tabla del árbol v2)
 - [ ] Manejo de errores y reintentos si la API de Claude o Supabase fallan mediante una respuesta segura ("dame un momento 🙌" + log)
 - [ ] Desplegar en hosting definitivo con URL estable (adiós ngrok) — bloquea probar cualquiera de los puntos de arriba con WhatsApp real

@@ -1,5 +1,5 @@
 const supabase = require('./supabase');
-const { parseIncomingMessage } = require('./whatsapp');
+const { parseIncomingMessage, sendTemplate } = require('./whatsapp');
 const { clasificarIntencion } = require('./claude');
 const { credencialesDeNegocio } = require('./credenciales');
 const { responderTexto, responderBotones, responderLista } = require('./responder');
@@ -8,6 +8,15 @@ const flujoAgendar = require('./flujoAgendar');
 const flujoPedido = require('./flujoPedido');
 const { esMensajeDelDueno, manejarMensajeDueno } = require('./dueno');
 const { formatearFranjaLarga } = require('./agenda');
+
+const MOTIVO_DERIVACION = {
+  contenido_medico: 'Mencionó un tema médico',
+  reclamo: 'Parece un reclamo',
+  hablar_con_humano: 'Pidió hablar con alguien',
+};
+
+// Para no repetir el mismo warning cada vez que se deriva una conversación.
+const avisadosSinPlantilla = new Set();
 
 // Entradas que se resuelven SIN llamar a Claude (eficiencia: los botones
 // ya traen la intención codificada en su id).
@@ -67,7 +76,7 @@ async function handleIncomingMessage(rawBody) {
   if (!entrada) {
     // TODO Fase 4: clasificarImagen() con visión de Claude / transcribir audio
     await responderTexto(negocio.wa, conversacion.id, msg.from, 'Recibí tu archivo 🙌 Se lo paso al equipo.');
-    await derivarAHumano(conversacion.id, 'normal');
+    await derivarAHumano({ negocio, cliente, conversacionId: conversacion.id, prioridad: 'normal', motivo: 'Envió un archivo que el bot no puede leer' });
     return;
   }
 
@@ -124,7 +133,13 @@ async function handleIncomingMessage(rawBody) {
   // 4) Escapes que cortan cualquier flujo en curso.
   if (['contenido_medico', 'reclamo', 'hablar_con_humano'].includes(intencion)) {
     await flujoAgendar.limpiar(conversacion.id); // limpia el contexto, sea cual sea el flujo activo
-    await derivarAHumano(conversacion.id, intencion === 'reclamo' ? 'alta' : 'normal');
+    await derivarAHumano({
+      negocio,
+      cliente,
+      conversacionId: conversacion.id,
+      prioridad: intencion === 'reclamo' ? 'alta' : 'normal',
+      motivo: MOTIVO_DERIVACION[intencion],
+    });
     return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeDerivadoHumano(), intencion);
   }
 
@@ -358,12 +373,26 @@ async function enviarMenuBienvenida(negocio, conversacion, to) {
   );
 }
 
-async function derivarAHumano(conversacionId, prioridad) {
+async function derivarAHumano({ negocio, cliente, conversacionId, prioridad, motivo }) {
   await supabase
     .from('conversaciones')
     .update({ estado: 'derivado_humano', prioridad })
     .eq('id', conversacionId);
-  // TODO: notificación push/email al dueño (se conecta con el panel)
+
+  const telefonoDueno = negocio.config?.telefono_dueno;
+  if (!telefonoDueno) return; // sin número cargado, no hay a quién avisarle
+
+  const nombrePlantilla = negocio.wa?.templates?.derivacionHumano;
+  if (!nombrePlantilla) {
+    if (!avisadosSinPlantilla.has(negocio.id)) {
+      avisadosSinPlantilla.add(negocio.id);
+      console.warn(`Derivación a humano: el negocio ${negocio.id} no tiene plantilla "derivacionHumano" configurada — no se avisa.`);
+    }
+    return;
+  }
+
+  const nombreCliente = cliente?.nombre && cliente.nombre !== 'Sin nombre' ? cliente.nombre : 'Un cliente';
+  await sendTemplate(negocio.wa, telefonoDueno, nombrePlantilla, [nombreCliente, motivo || 'Necesita ayuda']);
 }
 
 async function obtenerNegocioPorNumero(phoneNumberId) {
