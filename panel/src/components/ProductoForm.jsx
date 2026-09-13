@@ -162,10 +162,20 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
         productoId = nuevo.id;
       }
 
-      // Foto (opcional)
+      // Foto (opcional) — en un try aparte: si falla, el producto ya se
+      // guardó igual (el insert/update de arriba ya pasó), así que no
+      // tiene que parecer que "no se guardó nada" por un problema de la
+      // foto nada más.
+      let avisoFoto = null;
       if (foto) {
-        const url = await subirFotoProducto({ negocioId: negocio.id, productoId, file: foto });
-        await supabase.from('productos').update({ foto_url: url }).eq('id', productoId);
+        try {
+          const url = await subirFotoProducto({ negocioId: negocio.id, productoId, file: foto });
+          await supabase.from('productos').update({ foto_url: url }).eq('id', productoId);
+        } catch (errFoto) {
+          console.error('Error subiendo la foto:', errFoto);
+          avisoFoto =
+            'El producto se guardó, pero no se pudo subir la foto. Probá de nuevo editando el producto en un rato.';
+        }
       }
 
       // Variantes existentes: solo actualizamos el stock que hayan tocado
@@ -192,7 +202,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
         }
       }
 
-      onGuardado();
+      onGuardado(avisoFoto);
     } catch (err) {
       console.error(err);
       setError('No se pudo guardar. Probá de nuevo en un momento.');

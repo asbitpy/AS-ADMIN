@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, AlertTriangle, Upload } from 'lucide-react';
+import { Plus, AlertTriangle, Upload, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
@@ -26,6 +26,7 @@ export default function Productos() {
   const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState('lista'); // 'lista' | 'form' | 'importar'
   const [productoEditando, setProductoEditando] = useState(null);
+  const [avisoFoto, setAvisoFoto] = useState(null);
 
   const tickProductos = useRealtimeTick('productos', negocio?.id);
   const tickVariantes = useRealtimeTick('variantes_producto', negocio?.id);
@@ -72,8 +73,9 @@ export default function Productos() {
       <ProductoForm
         productoExistente={productoEditando}
         onCancelar={() => setVista('lista')}
-        onGuardado={() => {
+        onGuardado={(aviso) => {
           setVista('lista');
+          setAvisoFoto(aviso || null);
           cargar();
         }}
       />
@@ -125,6 +127,16 @@ export default function Productos() {
             tone="accent"
             compact
           />
+        </div>
+      )}
+
+      {avisoFoto && (
+        <div className="flex items-start gap-2 rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <p className="flex-1">{avisoFoto}</p>
+          <button onClick={() => setAvisoFoto(null)} className="shrink-0">
+            <X size={14} />
+          </button>
         </div>
       )}
 

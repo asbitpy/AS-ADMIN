@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ShoppingCart, Check, X } from 'lucide-react';
+import { Search, ShoppingCart, Check, X, Paperclip } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
+import { subirComprobante } from '../lib/storage';
 import CarritoItem from '../components/CarritoItem';
 import SelectorVariante from '../components/SelectorVariante';
 import CajaBar from '../components/CajaBar';
@@ -32,6 +33,11 @@ export default function Venta() {
   const [cobrando, setCobrando] = useState(false);
   const [ventaConfirmada, setVentaConfirmada] = useState(null);
   const [error, setError] = useState(null);
+  // Comprobante de pago (captura de la transferencia/QR): queda como
+  // respaldo adjunto a la venta. Nunca lo lee el bot ni confirma nada
+  // por sí solo — lo revisa una persona cuando hace falta.
+  const [comprobante, setComprobante] = useState(null);
+  const [avisoComprobante, setAvisoComprobante] = useState(null);
 
   const searchRef = useRef(null);
   const telefonoRef = useRef(null);
@@ -237,6 +243,20 @@ export default function Venta() {
 
       if (errRpc) throw errRpc;
 
+      // Comprobante (opcional): en un try aparte, igual que la foto de
+      // producto — si falla, la venta ya quedó registrada igual, no
+      // tiene sentido que un problema de la imagen tire abajo el cobro.
+      let avisoComp = null;
+      if (comprobante) {
+        try {
+          const ruta = await subirComprobante({ negocioId: negocio.id, ventaId, file: comprobante });
+          await supabase.from('ventas').update({ comprobante_url: ruta }).eq('id', ventaId);
+        } catch (errComp) {
+          console.error('Error subiendo el comprobante:', errComp);
+          avisoComp = 'La venta se registró, pero no se pudo guardar el comprobante adjunto.';
+        }
+      }
+
       // Mostramos el total que quedó registrado, no el que calculó el
       // navegador: si un precio cambió recién, manda el del servidor.
       const { data: venta } = await supabase
@@ -246,9 +266,11 @@ export default function Venta() {
         .maybeSingle();
 
       setVentaConfirmada({ id: ventaId, total: Number(venta?.total ?? subtotal) });
+      setAvisoComprobante(avisoComp);
       setCarrito([]);
       setTelefonoCliente('');
       setPagos([{ id: idPagoRef.current++, metodo: 'efectivo', monto: '' }]);
+      setComprobante(null);
       cargarProductos(); // refresca stock mostrado
     } catch (err) {
       console.error(err);
@@ -288,6 +310,7 @@ export default function Venta() {
         e.preventDefault();
         setCarrito([]);
         setBusqueda('');
+        setComprobante(null);
         searchRef.current?.focus();
         return;
       }
@@ -339,9 +362,13 @@ export default function Venta() {
         </div>
         <p className="font-display text-2xl text-ink">Venta registrada</p>
         <p className="font-mono text-lg text-ink">Gs. {ventaConfirmada.total.toLocaleString('es-PY')}</p>
+        {avisoComprobante && (
+          <p className="max-w-xs rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">{avisoComprobante}</p>
+        )}
         <button
           onClick={() => {
             setVentaConfirmada(null);
+            setAvisoComprobante(null);
             setTimeout(() => searchRef.current?.focus(), 0);
           }}
           className="mt-4 rounded-xl bg-accent px-6 py-3 text-sm font-medium text-accent-ink active:scale-[0.98]"
@@ -488,6 +515,31 @@ export default function Venta() {
               </div>
             </div>
           )}
+
+          <label className="flex items-center gap-2 rounded-xl border border-dashed border-line bg-surface px-3 py-2.5 text-xs text-muted">
+            <Paperclip size={14} className="shrink-0" />
+            <span className="flex-1 truncate">
+              {comprobante ? comprobante.name : 'Adjuntar comprobante de pago (opcional)'}
+            </span>
+            {comprobante && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setComprobante(null);
+                }}
+                className="shrink-0 text-muted active:text-danger"
+              >
+                <X size={14} />
+              </button>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+            />
+          </label>
 
           {error && <p className="text-sm text-danger">{error}</p>}
 

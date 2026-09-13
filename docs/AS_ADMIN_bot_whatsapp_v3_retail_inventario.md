@@ -92,7 +92,13 @@ El dueño (no el cliente) escribe algo como "cargá 20 unidades más de buzo neg
 | 1 | `consultar_stock` + `ver_catalogo` | Ninguno — solo lectura | ✅ Construido |
 | 2 | `hacer_pedido` + `cancelar_pedido` con reserva | Medio — primera escritura real desde el bot | ✅ Construido (falta correr la migración y cerrar el loop en el panel) |
 | 3 | Alerta automática de stock bajo al dueño | Bajo — solo notificación | ✅ Construida (falta config + plantilla de Meta, ver abajo) |
-| 4 | Reposición manual por WhatsApp (con confirmación) | Medio — escritura, pero siempre confirmada por el dueño | Pendiente |
+| 4 | Reposición manual por WhatsApp (con confirmación) | Medio — escritura, pero siempre confirmada por el dueño | ✅ Construida — falta correr la migración |
+
+**Etapa 4, estado real al cerrar esta ronda:**
+- Migración `015_reposicion_stock.sql`: agrega `negocios.contexto_admin` (estado del flujo, análogo a `conversaciones.contexto` pero uno solo por negocio) y `fn_reponer_stock` (suma stock + deja constancia en `movimientos_inventario`, mismo criterio que `fn_descontar_stock`). **Todavía no se corrió en Supabase.**
+- **Decisión de arquitectura clave:** el dueño le escribe al mismo número de WhatsApp del negocio — no hay un canal aparte. `backend/lib/dueno.js` detecta si el remitente es `negocio.config.telefono_dueno` (mismo campo que ya cargaste para la Etapa 3) y, si es así, el mensaje NUNCA pasa por el clasificador de clientes ni crea un `cliente`/`conversación` — va directo a `backend/lib/flujoReposicion.js`, un flujo dedicado (elegir producto → variante si aplica → cantidad → confirmar → hecho).
+- El clasificador para este canal (`clasificarComandoDueno` en `claude.js`) es deliberadamente angosto: solo entiende `reponer_stock`, nada de las intenciones de cliente.
+- Si el stock repuesto hace que el producto supere de nuevo su `stock_minimo`, la alerta de la Etapa 3 se resetea sola en su próxima corrida (no hace falta tocarla).
 
 **Etapa 3, estado real al cerrar esta ronda:**
 - Migración `014_alertas_stock.sql`: agrega `productos.alerta_stock_baja_enviada` (evita repetir el aviso mientras sigue bajo, se resetea solo al recuperarse) y `negocios_credenciales.template_alerta_stock`. **Todavía no se corrió en Supabase.**

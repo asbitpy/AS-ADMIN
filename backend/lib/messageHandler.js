@@ -6,6 +6,7 @@ const { responderTexto, responderBotones, responderLista } = require('./responde
 const respuestas = require('./respuestas');
 const flujoAgendar = require('./flujoAgendar');
 const flujoPedido = require('./flujoPedido');
+const { esMensajeDelDueno, manejarMensajeDueno } = require('./dueno');
 const { formatearFranjaLarga } = require('./agenda');
 
 // Entradas que se resuelven SIN llamar a Claude (eficiencia: los botones
@@ -29,6 +30,13 @@ async function handleIncomingMessage(rawBody) {
   if (!negocio) {
     console.warn(`Mensaje para un phone_number_id no configurado: ${msg.phoneNumberId}`);
     return;
+  }
+
+  // El dueño le puede escribir al mismo número para avisar que repuso
+  // stock — no es un cliente, así que no crea cliente/conversación ni
+  // pasa por el clasificador de intenciones de clientes.
+  if (esMensajeDelDueno(msg, negocio)) {
+    return manejarMensajeDueno(msg, negocio);
   }
 
   const cliente = await obtenerOCrearCliente(negocio.id, msg.from);

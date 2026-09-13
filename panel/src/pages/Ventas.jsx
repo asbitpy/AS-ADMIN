@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Receipt, Ban, Clock } from 'lucide-react';
+import { ChevronLeft, Receipt, Ban, Clock, Paperclip } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
+import { urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 
 // Mismo criterio que Productos.jsx: un monto de más de 7 cifras no entra
@@ -324,6 +325,20 @@ function DetalleVenta({
   const [motivo, setMotivo] = useState('');
   const [cancelandoReserva, setCancelandoReserva] = useState(false);
   const [motivoReserva, setMotivoReserva] = useState('');
+  const [comprobanteUrl, setComprobanteUrl] = useState(null);
+  const [cargandoComprobante, setCargandoComprobante] = useState(false);
+
+  async function verComprobante() {
+    setCargandoComprobante(true);
+    try {
+      const url = await urlComprobante(venta.comprobante_url);
+      setComprobanteUrl(url);
+    } catch (err) {
+      console.error('Error obteniendo el comprobante:', err);
+    } finally {
+      setCargandoComprobante(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -405,6 +420,25 @@ function DetalleVenta({
           <p className="mt-3 rounded-lg bg-danger-soft p-2.5 text-xs text-danger">
             Motivo de anulación: {venta.anulada_motivo}
           </p>
+        )}
+
+        {venta.comprobante_url && (
+          <div className="mt-3 border-t border-line pt-3">
+            {comprobanteUrl ? (
+              <a href={comprobanteUrl} target="_blank" rel="noreferrer">
+                <img src={comprobanteUrl} alt="Comprobante de pago" className="max-h-64 w-full rounded-lg object-contain" />
+              </a>
+            ) : (
+              <button
+                onClick={verComprobante}
+                disabled={cargandoComprobante}
+                className="flex items-center gap-1.5 text-xs font-medium text-accent disabled:opacity-60"
+              >
+                <Paperclip size={14} />
+                {cargandoComprobante ? 'Cargando…' : 'Ver comprobante adjunto'}
+              </button>
+            )}
+          </div>
         )}
       </div>
 

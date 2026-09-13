@@ -100,4 +100,55 @@ Devolvé SOLO este JSON, sin texto adicional antes ni después:
   }
 }
 
-module.exports = { clasificarIntencion };
+/**
+ * Clasifica un mensaje del DUEÑO del negocio (canal aparte: le habla al
+ * mismo número de WhatsApp, pero nunca es un cliente). Alcance mínimo a
+ * propósito — solo reponer stock, nada de las intenciones de cliente.
+ */
+async function clasificarComandoDueno({ mensaje, negocio, productos = [] }) {
+  const listaProductos =
+    productos.map((p) => `- "${p.nombre}"`).join('\n') || '- (sin productos cargados)';
+
+  const systemPrompt = `
+Sos el asistente interno para el DUEÑO de "${negocio.nombre}" — nunca le hablás a un cliente acá.
+Tu única tarea es leer su mensaje y devolver un JSON con la intención y los datos extraídos.
+NO redactes una respuesta. Solo clasificás.
+
+Productos de este negocio (el nombre debe salir EXACTO de esta lista):
+${listaProductos}
+
+Intenciones posibles:
+- "reponer_stock"   (avisa que sumó unidades a un producto: "cargá", "sumá", "llegaron", "repuse", "entraron")
+- "saludo"
+- "no_entendido"
+
+Reglas de extracción:
+- "producto": el nombre EXACTO de la lista si lo menciona, si no null.
+- "variante": talle/color si lo menciona ("M", "negro"), si no null.
+- "cantidad": el número de unidades si lo dice, si no null.
+
+Devolvé SOLO este JSON, sin texto adicional antes ni después:
+{
+  "intencion": "...",
+  "datos_extraidos": { "producto": null, "variante": null, "cantidad": null }
+}
+`.trim();
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 200,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: mensaje }],
+  });
+
+  const textoRespuesta = response.content.find((b) => b.type === 'text')?.text || '{}';
+
+  try {
+    const limpio = textoRespuesta.replace(/```json|```/g, '').trim();
+    return JSON.parse(limpio);
+  } catch {
+    return { intencion: 'no_entendido', datos_extraidos: {} };
+  }
+}
+
+module.exports = { clasificarIntencion, clasificarComandoDueno };
