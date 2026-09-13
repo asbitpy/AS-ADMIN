@@ -1,8 +1,8 @@
 # AS ADMIN — Checklist maestro de desarrollo
 
-> **Decisión clave (actualización):** AS ADMIN se unificó en un solo sistema con núcleo común + módulos activables por negocio, para soportar tanto negocios de **servicio** (agenda) como de **retail** (POS/inventario/ventas), incluyendo negocios híbridos. Ver `AS_ADMIN_arquitectura_unificada_v3.md` para el detalle completo de los 15 módulos, y `AS_ADMIN_migracion_004_retail_core.sql` para la base de datos del núcleo retail.
+> AS ADMIN es un solo sistema con núcleo común + módulos activables por negocio, para soportar tanto negocios de **servicio** (agenda) como de **retail** (POS/inventario/ventas), incluyendo negocios híbridos. Ver `AS_ADMIN_arquitectura_unificada_v3.md` para el detalle de los 15 módulos.
 >
-> **Todo el proyecto (backend + panel + base de datos + docs) ya está consolidado en una sola carpeta: `as-admin.zip`.** Es el punto de partida para abrir en Claude Code — el README raíz de esa carpeta orienta la estructura completa.
+> El proyecto vive en el repositorio git (`asbitpy/AS-ADMIN`): `backend/` (bot de WhatsApp), `panel/` (React + Tailwind + Supabase), `database/` (migraciones `001` a `017`, en orden), `docs/` (este archivo y los demás `.md`).
 
 Documento de referencia único: todo lo que hay que ver, tener y hacer para llevar AS ADMIN del estado actual al lanzamiento con el cliente piloto y más allá. Actualizalo a medida que avances.
 
@@ -10,23 +10,24 @@ Documento de referencia único: todo lo que hay que ver, tener y hacer para llev
 
 ## 1. Cuentas, accesos y herramientas
 
+- [x] Repositorio Git creado (`asbitpy/AS-ADMIN`)
 - [ ] **Meta Business Manager** de AS BIT creado
 - [ ] **Verificación de negocio en Meta** iniciada (⚠️ es el trámite que más demora — arrancarlo primero; pueden pedir registro comercial, factura de servicios, etc.)
 - [ ] App creada en **Meta for Developers** con el producto WhatsApp agregado
 - [ ] ⚠️ Copiar el **App Secret** de esa app (Configuración básica, NO el token de WhatsApp) y cargarlo como `WHATSAPP_APP_SECRET` en el `.env` del backend — sin esto el webhook rechaza todos los mensajes entrantes a propósito (ver `backend/lib/seguridadWebhook.js`)
 - [ ] Número del negocio piloto registrado → anotar su `phone_number_id` y token
-- [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (con payloads `rec_confirmo` / `rec_reprogramar` / `rec_cancelar`)
+- [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (payloads `rec_confirmo`/`rec_reprogramar`/`rec_cancelar`), y la nueva de alerta de stock bajo (`template_alerta_stock`, ver sección 11)
 - [ ] **API key de Claude** (Anthropic) activa
-- [ ] Proyecto de **Supabase** creado (base de datos + auth)
-- [ ] Hosting elegido para el backend (Railway / Render) y para el panel (Vercel)
+- [x] Proyecto de **Supabase** creado (base de datos + auth) — ya en uso, migraciones 001-017 corridas
+- [ ] Hosting elegido para el backend (Railway / Render) y para el panel (Vercel) — el backend **todavía no está desplegado en ningún lado**, solo corrido localmente para pruebas puntuales
 - [ ] **Dominio** comprado (asadmin.com.py o similar) — revisar disponibilidad
 - [ ] `ngrok` (o similar) instalado para probar el webhook en desarrollo
-- [ ] Repositorio Git creado (el zip actual como commit inicial)
+- [ ] Crear el bucket **`productos-fotos`** en Supabase Storage (público: sí) — paso manual, no lo crea ninguna migración (ver `005_retail_rls_y_fotos.sql`)
+- [x] Crear el bucket **`comprobantes-pago`** en Supabase Storage (privado: sí) — hecho
 
 ## 2. Base de datos
 
-- [ ] Correr `AS_ADMIN_esquema_base_datos.sql` en Supabase
-- [ ] Correr `migrations/002_mejoras_flujo.sql`
+- [x] Migraciones `001` a `017` corridas y verificadas en Supabase (ver tabla de archivos al final de este documento)
 - [ ] Cargar el negocio piloto con sus datos reales (servicios, precios, horarios, feriados)
 - [ ] Configurar **backups automáticos** (Supabase los incluye — verificar retención del plan)
 - [ ] Definir política de acceso a datos sensibles (documentos médicos: solo el profesional)
@@ -34,9 +35,9 @@ Documento de referencia único: todo lo que hay que ver, tener y hacer para llev
 ## 3. Desarrollo — Fase 1 (Agenda + WhatsApp) — estado actual: ~80%
 
 Hecho en el backend actual:
-- [x] Webhook con verificación y deduplicación
+- [x] Webhook con verificación y deduplicación, **y firma de Meta verificada** (`backend/lib/seguridadWebhook.js` — ver sección 1, necesita `WHATSAPP_APP_SECRET`)
 - [x] Multi-tenant por `phone_number_id`
-- [x] Menú de bienvenida con lista interactiva
+- [x] Menú de bienvenida con lista interactiva (adaptado según `modulos_activos` del negocio)
 - [x] Clasificador de intenciones híbrido (Claude clasifica, plantillas responden)
 - [x] Flujo completo de agendado (servicio → para quién → nombre → franjas → confirmación)
 - [x] Motor de agenda con compactado, feriados y revalidación de franjas
@@ -55,51 +56,48 @@ Hecho en el backend actual:
 
 Pendiente para cerrar la Fase 1:
 - [ ] Ofrecer franja liberada al primero de la lista de espera al cancelarse un turno
-- [ ] Notificación al dueño cuando una conversación se deriva (email / push / WhatsApp al dueño)
+- [ ] Notificación al dueño cuando una conversación se deriva a humano — ahora es más simple de construir: ya existe `negocio.config.telefono_dueno` y el patrón de mandarle un WhatsApp directo (`backend/lib/dueno.js`, usado hoy para la reposición de stock)
 - [ ] Probar de punta a punta con el número de prueba de Meta (10-15 conversaciones simuladas, incluyendo los casos especiales de la tabla del árbol v2)
 - [ ] Manejo de errores y reintentos si la API de Claude o Supabase fallan mediante una respuesta segura ("dame un momento 🙌" + log)
-- [ ] Desplegar en hosting definitivo con URL estable (adiós ngrok)
+- [ ] Desplegar en hosting definitivo con URL estable (adiós ngrok) — bloquea probar cualquiera de los puntos de arriba con WhatsApp real
 
-## 4. Desarrollo — Panel del dueño (parte de Fase 1) — estado actual: ~80%
+## 4. Desarrollo — Panel del dueño (parte de Fase 1) — estado actual: ~85%
 
 - [x] Proyecto React mobile-first (Vite + Tailwind, listo para Vercel)
 - [x] Login (Supabase Auth) protegido por RLS — un usuario por negocio
-- [x] Vista **HOY**: métricas del día + línea de tiempo con los turnos y su estado
+- [x] Identidad visual de AS BIT aplicada (dark navy + celeste + morado, Space Grotesk/Inter) con tiempo real (Supabase Realtime) en las pantallas principales
+- [x] Vista **Hoy**: navegador de días + lista de turnos/agenda del día
 - [x] Alertas de conversaciones derivadas (prioridad alta destacada), con acceso directo al WhatsApp del cliente
 - [x] ABM de servicios y precios, ABM de feriados/excepciones, editar dirección
 - [x] Marcar turno como **completado** (dispara el ingreso automático), **no_show** o **cancelado**
-- [x] Ingreso de la semana visible en la vista Hoy
+- [x] Dar de alta el usuario del dueño en Supabase Auth y vincularlo a su negocio — ya en uso activo durante todo el desarrollo
 - [ ] Historial completo de conversación al tocar una alerta (hoy abre WhatsApp directo)
 - [ ] Editar horarios de atención desde la UI (hoy se edita en Supabase directo)
 - [ ] Selector de profesional para clínicas con más de uno
-- [ ] Dar de alta el usuario del dueño en Supabase Auth y vincularlo a su negocio (paso manual, documentado en el README del panel)
 - [ ] Probar el flujo de empleado de punta a punta: crear una cuenta de prueba en Supabase Auth, agregarla desde Equipo con un rol, loguearse con esa cuenta y confirmar qué ve (migración 011 ya corrida y verificada — falta este último paso de prueba real)
 
-## 5. Desarrollo — Fase 2 (Finanzas simples)
+## 5. Desarrollo — Finanzas
 
-- [x] Detalle de cada movimiento financiero (no solo el total por categoría) + comprobante adjunto (gastos e ingresos manuales, mismo bucket privado que las ventas) y quién lo cargó (`registrado_por`) — falta correr `017_detalle_movimientos.sql`. Pendiente para más adelante: flujo de caja proyectado (lo que falta cobrar/pagar, no solo lo ya movido) y comparación vs. período anterior
-- [ ] Carga manual de gastos (categoría, monto, fecha)
-- [ ] Vista de caja: ingresos vs egresos por día/semana/mes
-- [ ] Top de servicios más vendidos
+- [x] Carga manual de gastos e ingresos (categoría, monto, notas)
+- [x] Vista de caja: ingresos vs egresos por día/semana/mes, con lo que "necesita atención" arriba de todo (caja sin cerrar, créditos vencidos, etc.)
+- [x] Detalle de cada movimiento financiero individual (no solo el total por categoría) + comprobante adjunto (mismo bucket privado que las ventas) + quién lo cargó (`registrado_por`)
+- [x] Gastos fijos mensuales (alquiler, luz, agua...): se definen una vez y Finanzas recuerda confirmarlos el día que corresponde — **nunca se cargan solos**, siempre los confirma una persona (mismo criterio que los comprobantes). Migración `018_gastos_fijos.sql`, componente `GastosFijos.jsx`
+- [ ] Top de servicios/productos más vendidos
 - [ ] Exportar a Excel/PDF (para el contador / e-Kuatia)
 - [ ] Resumen semanal proactivo al dueño ("esta semana facturaste X")
+- [ ] Flujo de caja **proyectado** (lo que falta cobrar/pagar — pedidos reservados, créditos, y ahora también los gastos fijos del mes que todavía no se confirmaron — juntar todo en una sola vista de "lo que se viene")
+- [ ] Comparación vs. período anterior en los 3 números principales (Ingresos/Egresos/Neto)
 
-## 6. Desarrollo — Fase 3 (Inventario opcional)
+## 6. Visión y voz (Fase futura, sin empezar)
 
-- [ ] ABM de productos con stock y stock mínimo
-- [ ] Registrar venta de producto (asociable a un turno)
-- [ ] Alerta de stock bajo
-- [ ] Reporte de productos más vendidos
-
-## 7. Desarrollo — Fase 4 (Visión) y Fase 5 (Voz)
-
-- [ ] Clasificador de imágenes con Claude: comprobante de pago / documento médico / referencia / irrelevante (según Módulo A del addendum v3)
-- [ ] Flujo de comprobante: "parece un pago de Gs. X" → el dueño confirma con un toque
 - [ ] Transcripción de audios (clave en Paraguay) con un servicio de speech-to-text
-- [ ] Verificar el estado actual de la integración telefónica de ElevenLabs (documentación oficial) antes de diseñar la Fase 5
+- [ ] Clasificador de imágenes con Claude para fotos/documentos que manda un cliente (no comprobantes de pago — ver la nota abajo)
+- [ ] Verificar el estado actual de la integración telefónica de ElevenLabs (documentación oficial) antes de diseñar la fase de voz
 - [ ] Modelar el costo por minuto de voz dentro del precio del add-on
 
-## 8. Legal y administrativo (pendiente — lo dejamos para después)
+> **Decisión de diseño (importante, no reabrir sin una razón nueva):** el bot **nunca** lee ni verifica comprobantes de pago para confirmar que una transferencia es válida — ni con visión de Claude ni con ningún otro método. Una imagen se puede falsificar o corresponder a una transferencia luego reversada; solo una persona mirando su propia app del banco puede confirmar que la plata realmente entró. Lo que sí existe (ver sección 11) es guardar el comprobante como **respaldo/auditoría** en la venta o el movimiento financiero — nunca como confirmación automática.
+
+## 7. Legal y administrativo (pendiente — lo dejamos para después)
 
 - [ ] Confirmar con el contador el rubro SaaS/software en el RUC de AS BIT
 - [ ] Términos y condiciones del servicio (AS BIT ↔ negocio cliente)
@@ -108,51 +106,47 @@ Pendiente para cerrar la Fase 1:
 - [ ] Definir facturación de la suscripción (factura legal, medio de cobro)
 - [ ] Revisar todo con un abogado antes del primer contrato real
 
-## 9. Comercial y lanzamiento
+## 8. Comercial y lanzamiento
 
 - [ ] Confirmar el cliente piloto (clínica o nutricionista actual de AS BIT) y cargar sus datos reales
 - [ ] Acordar condiciones del piloto: gratis o muy barato por 30-60 días a cambio de feedback + testimonio
 - [ ] Definir precios de los planes en guaraníes (Básico / Negocio / Full / Add-on Voz)
 - [ ] Definir cómo cobrar la suscripción (transferencia, Tigo Money, Bancard/dLocal más adelante)
 - [ ] Medir la métrica estrella durante el piloto: **tasa de ausencias antes vs. después**
-- [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc. — tu especialidad)
+- [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc.)
 - [ ] Material de venta con las métricas reales del piloto para salir a buscar los clientes 2-5
-- [ ] Manual de uso del panel para el dueño/equipo — descargable o como link directo, para que puedan ver cómo se usa cada pantalla sin tener que preguntar cada cosa
+- [ ] Manual de uso del panel para el dueño/equipo — descargable o como link directo (explícitamente pausado hasta terminar el resto del producto)
 
-## 10. Operación continua
+## 9. Operación continua
 
 - [ ] Monitoreo básico de errores del backend (logs del hosting + alertas)
 - [ ] Controlar el costo mensual: conversaciones de Meta + tokens de Claude por negocio
 - [ ] Proceso documentado de onboarding de un cliente nuevo (alta de número en Meta, carga de config, plantillas) — cada cliente nuevo debería tomar horas, no días
 - [ ] Canal de soporte para los dueños (un WhatsApp de AS BIT, irónicamente puede atenderlo el propio AS ADMIN algún día)
 
-## 11. Retail (Fase 4 — núcleo nuevo)
+## 10. Retail (POS + inventario + bot retail)
 
-- [x] Correr `AS_ADMIN_migracion_004_retail_core.sql` en Supabase (después de 003)
-- [x] Agregar políticas de RLS para las tablas nuevas (`005_retail_rls_y_fotos.sql`)
-- [x] Panel: ABM de productos con variantes (talle/color), categorías, fotos, alerta de stock bajo
-- [x] Navegación adaptable: pestaña Productos solo visible si el negocio tiene `pos`/`inventario` activo
-- [ ] Definir `modulos_activos` al dar de alta un negocio desde una UI (por ahora se activa a mano, ver README del panel)
-- [ ] Backend: endpoint/flujo de POS (crear venta + items, llamar a `fn_descontar_stock()` dentro de la misma transacción)
-- [x] Panel: pantalla de POS (búsqueda de producto, carrito, cobro) — `Venta.jsx`, con `fn_crear_venta()` como operación atómica (venta + items + descuento de stock, todo o nada)
-- [x] El precio de cada venta lo pone el servidor leyendo el catálogo
-      (`fn_precio_vigente` + `fn_crear_venta`, migración 007). Antes el
-      panel mandaba el precio y la base lo aceptaba: con cajeros y
-      vendedores en el roadmap, eso era plata real. También arregla que
-      el POS cobrara el precio del padre ignorando `precio_override` de
-      la variante
-- [x] Panel: apertura y cierre de caja con arqueo (`CajaBar.jsx`) — monto inicial, gastos/retiros durante el día, diferencia entre caja esperada y contada al cerrar. No bloquea la venta si está cerrada
-- [ ] Panel: vista "Hoy" para negocios retail (resumen de caja del día) — hoy un negocio sin `agenda` cae directo a Productos
-- [x] Bot de WhatsApp: intenciones `consultar_stock` y `ver_catalogo` (solo lectura, Etapa 1 de `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md`) — menú de bienvenida ahora se arma según `modulos_activos`
-- [x] Bot de WhatsApp: intenciones `hacer_pedido` y `cancelar_pedido` con reserva de stock (Etapa 2) — migración `013_reservas_whatsapp.sql` corrida y verificada en Supabase
-- [x] Panel: acción para que el cajero complete (`fn_completar_reserva`) o cancele (`fn_cancelar_reserva`) a mano un pedido reservado por WhatsApp cuando el cliente llega al local
-- [x] Bot de WhatsApp: alerta de stock bajo al dueño (Etapa 3) — migración `014_alertas_stock.sql` corrida, `telefono_dueno` cargado; falta dar de alta + esperar aprobación de Meta de la plantilla nueva
-- [x] Bot de WhatsApp: reposición manual de stock por WhatsApp (Etapa 4) — el dueño le escribe al mismo número del negocio y confirma antes de cargar; migración `015_reposicion_stock.sql` corrida
-- [x] Panel: comprobante de pago adjunto a la venta (captura de transferencia/QR), solo como respaldo — nunca lo lee/verifica el bot, siempre lo revisa una persona. Falta correr `016_comprobantes_pago.sql` y crear el bucket **privado** `comprobantes-pago` en Supabase Storage (Storage → New bucket, público: NO)
+- [x] Núcleo retail: productos con variantes (talle/color), categorías, caja con arqueo, proveedores/compras, créditos de cliente (migración 004 + RLS en 005)
+- [x] Panel: ABM de productos con variantes, categorías, fotos, alerta de stock bajo
+- [x] Navegación adaptable: pestañas de retail solo visibles si el negocio tiene `pos`/`inventario` activo
+- [x] Panel: pantalla de POS (`Venta.jsx`) — búsqueda/escaneo, carrito, pago simple o dividido, `fn_crear_venta()` atómica (precio de servidor + descuento de stock, todo o nada)
+- [x] Panel: apertura y cierre de caja con arqueo (`CajaBar.jsx`)
+- [x] Panel: comprobante de pago adjunto a la venta (respaldo, nunca verificación automática — ver la nota en sección 6)
+- [ ] Definir `modulos_activos` al dar de alta un negocio desde una UI (por ahora se activa a mano en Supabase)
+- [ ] Panel: vista "Hoy" propia para negocios retail (hoy un negocio sin `agenda` cae directo a Productos)
+- [ ] Reporte de productos más vendidos
 - [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
-- [ ] Proveedores y Compras (ABM + órdenes de compra)
-- [ ] Usuarios multiusuario con roles y permisos (admin/gerente/vendedor/cajero)
-- [ ] Créditos de clientes (venta a crédito, seguimiento de deuda)
+- [ ] Usuarios multiusuario con roles y permisos más finos (hoy existen los roles base de la migración 011; falta UI para permisos por excepción)
+- [ ] Créditos de clientes: seguimiento de deuda desde el panel (la tabla y la alerta de vencidos ya existen)
+
+## 11. Bot de WhatsApp retail (ver `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md` para el detalle de diseño)
+
+- [x] Etapa 1 — `consultar_stock` y `ver_catalogo` (solo lectura)
+- [x] Etapa 2 — `hacer_pedido` y `cancelar_pedido` con reserva de stock (el cliente retira y paga en el local; la reserva vence sola si no la retira)
+- [x] Panel: acción para que el cajero complete (`fn_completar_reserva`) o cancele (`fn_cancelar_reserva`) a mano un pedido reservado
+- [x] Etapa 3 — Alerta de stock bajo al dueño (`telefono_dueno` cargado) — falta dar de alta y esperar la aprobación de Meta de la plantilla (`template_alerta_stock`, ver sección 1)
+- [x] Etapa 4 — Reposición manual de stock: el dueño le escribe al mismo número del negocio y confirma antes de cargar (`backend/lib/dueno.js`)
+- [ ] Todo lo de esta sección solo se puede probar con WhatsApp real una vez desplegado el backend (ver sección 1/3) — hasta ahora se verificó la lógica llamando a las funciones de la base directamente
 
 ---
 
@@ -160,13 +154,12 @@ Pendiente para cerrar la Fase 1:
 
 | Archivo | Qué contiene |
 |---|---|
-| `AS_ADMIN_arbol_conversacion_bot_v2.md` | Árbol de conversación completo con casos especiales y métricas |
-| `AS_ADMIN_vision_y_voz_v3.md` | Módulos de visión (imágenes) y voz (ElevenLabs) |
-| `AS_ADMIN_esquema_base_datos.sql` | Esquema base de la base de datos |
-| `as-admin-backend.zip` → `migrations/002_mejoras_flujo.sql` | Mejoras de esquema + trigger de finanzas |
-| `as-admin-backend.zip` | Backend v0.2 completo con README de puesta en marcha |
-| `as-admin-panel.zip` | Panel del dueño (React + Tailwind + Supabase), con `migrations/003_panel_auth_rls.sql` |
+| `database/001` a `017` (en orden) | Todas las migraciones de base de datos — correrlas en ese orden en el SQL Editor de Supabase |
+| `database/seed_demo.sql` | Datos de ejemplo para probar el panel sin cargar todo a mano |
 | `AS_ADMIN_arquitectura_unificada_v3.md` | Cómo se unifican servicio + retail: mapa de los 15 módulos, navegación adaptable, riesgos técnicos, roadmap |
-| `AS_ADMIN_migracion_004_retail_core.sql` | Base de datos del núcleo retail: productos con variantes, POS, caja con arqueo, proveedores, compras, créditos |
-| `as-admin.zip` | **Proyecto completo consolidado** (backend + panel + database/ + docs/), listo para abrir en Claude Code |
-| Informe de investigación ERP/CRM | Benchmarks y los 8 principios de diseño |
+| `AS_ADMIN_arbol_conversacion_bot_v2.md` | Árbol de conversación de la personalidad de Agenda del bot, con casos especiales y métricas |
+| `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md` | Diseño y estado de las 4 etapas del bot retail (stock, pedidos, alertas, reposición) |
+| `AS_ADMIN_pantallas_y_escritorio_v1.md` | Especificación de las 13 pantallas del panel y la decisión de versión de escritorio |
+| `AS_ADMIN_vision_y_voz_v3.md` | Módulos futuros de visión (imágenes) y voz (ElevenLabs) |
+| `backend/` | Bot de WhatsApp (Node.js + Express + Claude + Supabase) |
+| `panel/` | Panel del dueño (React + Vite + Tailwind + Supabase) |

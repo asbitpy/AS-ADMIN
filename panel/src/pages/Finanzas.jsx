@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown, Paperclip, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown, Paperclip, ChevronRight, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
 import { subirComprobanteMovimiento, urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
+import GastosFijos from '../components/GastosFijos';
 
 const PERIODOS = [
   { id: 'hoy', label: 'Hoy' },
@@ -67,6 +68,10 @@ export default function Finanzas() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const guardandoRef = useRef(false);
+  // Si el formulario se abrió desde "¿ya pagaste el alquiler?", este es
+  // el gasto fijo que se confirma — así el movimiento queda vinculado y
+  // no se vuelve a recordar este mes.
+  const [gastoFijoActivo, setGastoFijoActivo] = useState(null);
 
   // Detalle de un movimiento individual (tocás una fila en "Movimientos").
   const [movimientoAbierto, setMovimientoAbierto] = useState(null);
@@ -106,6 +111,8 @@ export default function Finanzas() {
   async function cargarPendientes() {
     const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Asuncion' }).format(new Date());
     const inicioHoy = `${hoyISO}T00:00:00-03:00`;
+    const diaDeHoy = Number(hoyISO.slice(8, 10));
+    const inicioMes = `${hoyISO.slice(0, 7)}-01`;
 
     const consultas = [
       // Caja abierta de un día anterior: el riesgo #1 de olvido en un mostrador.
@@ -121,6 +128,21 @@ export default function Finanzas() {
         .select('id, prioridad, cliente:clientes(nombre)')
         .eq('negocio_id', negocio.id)
         .eq('estado', 'derivado_humano'),
+      // Todos los gastos fijos activos (el estado de cada uno — pagado,
+      // vencido, próximo — se calcula al renderizar, no acá).
+      supabase
+        .from('gastos_fijos')
+        .select('id, nombre, categoria, monto_estimado, dia_mes')
+        .eq('negocio_id', negocio.id)
+        .eq('activo', true)
+        .order('dia_mes'),
+      // De esos, cuáles ya se confirmaron pagados este mes.
+      supabase
+        .from('movimientos_financieros')
+        .select('gasto_fijo_id')
+        .eq('negocio_id', negocio.id)
+        .not('gasto_fijo_id', 'is', null)
+        .gte('fecha', inicioMes),
     ];
 
     if (tieneRetail) {
@@ -139,7 +161,9 @@ export default function Finanzas() {
       );
     }
 
-    const [cajasRes, conversRes, productosRes, creditosRes] = await Promise.all(consultas);
+    const [cajasRes, conversRes, gastosFijosRes, movsGastoFijoRes, productosRes, creditosRes] = await Promise.all(
+      consultas
+    );
 
     const stockBajo = tieneRetail
       ? (productosRes?.data || []).filter((p) => {
@@ -150,13 +174,22 @@ export default function Finanzas() {
         })
       : [];
 
+    const gastosFijosPagadosIds = new Set((movsGastoFijoRes?.data || []).map((m) => m.gasto_fijo_id));
+
     setPendientes({
       cajasSinCerrar: cajasRes?.data || [],
       conversaciones: conversRes?.data || [],
       stockBajo,
       creditosVencidos: creditosRes?.data || [],
+      gastosFijos: gastosFijosRes?.data || [],
+      gastosFijosPagadosIds,
     });
   }
+
+  const diaDeHoy = useMemo(
+    () => Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Asuncion' }).format(new Date()).slice(8, 10)),
+    []
+  );
 
   const totalPendientes = pendientes
     ? pendientes.cajasSinCerrar.length +
@@ -212,6 +245,7 @@ export default function Finanzas() {
         categoria: categoriaNueva,
         origen: 'manual',
         notas: notaNueva || null,
+        gasto_fijo_id: gastoFijoActivo,
       })
       .select()
       .single();
@@ -243,8 +277,22 @@ export default function Finanzas() {
     setMontoNuevo('');
     setNotaNueva('');
     setComprobanteNuevo(null);
+    setGastoFijoActivo(null);
     setVistaForm(false);
     cargarMovimientos();
+    cargarPendientes(); // este gasto fijo deja de aparecer como vencido
+  }
+
+  // Abre el formulario ya cargado con los datos del gasto fijo, para
+  // confirmar en un toque — el monto y la nota siguen siendo editables
+  // por si esta vez salió distinto (ej. la luz).
+  function iniciarPagoGastoFijo(g) {
+    setTipoNuevo('egreso');
+    setCategoriaNueva(g.categoria);
+    setMontoNuevo(String(g.monto_estimado));
+    setNotaNueva(g.nombre);
+    setGastoFijoActivo(g.id);
+    setVistaForm(true);
   }
 
   async function verComprobanteDetalle(ruta) {
@@ -335,6 +383,7 @@ export default function Finanzas() {
               </p>
             </div>
           ))}
+
         </div>
       )}
 
@@ -366,11 +415,61 @@ export default function Finanzas() {
       </div>
 
       <button
-        onClick={() => setVistaForm(true)}
+        onClick={() => {
+          setTipoNuevo('egreso');
+          setCategoriaNueva('gasto');
+          setMontoNuevo('');
+          setNotaNueva('');
+          setGastoFijoActivo(null);
+          setVistaForm(true);
+        }}
         className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-medium text-ink"
       >
         <Plus size={14} /> Cargar un gasto o ingreso manual
       </button>
+
+      <GastosFijos negocioId={negocio.id} onCambio={cargarPendientes} />
+
+      {/* ---- Gastos fijos de este mes: arriba de todo, antes de los
+           movimientos sueltos — es plata que ya sabés que se viene ---- */}
+      {pendientes && pendientes.gastosFijos.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Gastos fijos de este mes</p>
+          <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+            {pendientes.gastosFijos.map((g) => {
+              const pagado = pendientes.gastosFijosPagadosIds.has(g.id);
+              const vencido = !pagado && g.dia_mes <= diaDeHoy;
+              return (
+                <div key={g.id} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div>
+                    <p className="text-sm text-ink">{g.nombre}</p>
+                    <p className={`text-xs ${vencido ? 'text-amber' : 'text-muted'}`}>
+                      Gs. {Number(g.monto_estimado).toLocaleString('es-PY')} ·{' '}
+                      {pagado
+                        ? 'Pagado este mes'
+                        : vencido
+                          ? `Venció el día ${g.dia_mes}`
+                          : `Vence el día ${g.dia_mes}`}
+                    </p>
+                  </div>
+                  {pagado ? (
+                    <Check size={18} className="shrink-0 text-accent" />
+                  ) : (
+                    <button
+                      onClick={() => iniciarPagoGastoFijo(g)}
+                      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                        vencido ? 'bg-amber-soft text-amber' : 'bg-base text-muted'
+                      }`}
+                    >
+                      Confirmar pago
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {cargando && <p className="pt-4 text-center text-sm text-muted">Cargando…</p>}
 
@@ -440,11 +539,25 @@ export default function Finanzas() {
       )}
 
       {vistaForm && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setVistaForm(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/60"
+          onClick={() => {
+            setVistaForm(false);
+            setGastoFijoActivo(null);
+          }}
+        >
           <div className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-5 pb-8" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <p className="font-display text-lg text-ink">Cargar movimiento</p>
-              <button onClick={() => setVistaForm(false)} className="text-muted">
+              <p className="font-display text-lg text-ink">
+                {gastoFijoActivo ? 'Confirmar pago' : 'Cargar movimiento'}
+              </p>
+              <button
+                onClick={() => {
+                  setVistaForm(false);
+                  setGastoFijoActivo(null);
+                }}
+                className="text-muted"
+              >
                 <X size={20} />
               </button>
             </div>
