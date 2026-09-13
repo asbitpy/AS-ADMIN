@@ -77,6 +77,7 @@ Pendiente para cerrar la Fase 1:
 
 ## 5. Desarrollo — Fase 2 (Finanzas simples)
 
+- [x] Detalle de cada movimiento financiero (no solo el total por categoría) + comprobante adjunto (gastos e ingresos manuales, mismo bucket privado que las ventas) y quién lo cargó (`registrado_por`) — falta correr `017_detalle_movimientos.sql`. Pendiente para más adelante: flujo de caja proyectado (lo que falta cobrar/pagar, no solo lo ya movido) y comparación vs. período anterior
 - [ ] Carga manual de gastos (categoría, monto, fecha)
 - [ ] Vista de caja: ingresos vs egresos por día/semana/mes
 - [ ] Top de servicios más vendidos

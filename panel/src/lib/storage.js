@@ -18,18 +18,28 @@ export async function subirFotoProducto({ negocioId, productoId, file }) {
   return data.publicUrl;
 }
 
-/** Sube el comprobante de una venta. Guarda la RUTA (no una URL pública
- *  — el bucket es privado) para poder pedir después una signed URL. */
-export async function subirComprobante({ negocioId, ventaId, file }) {
-  const extension = file.name.split('.').pop();
-  const ruta = `${negocioId}/${ventaId}.${extension}`;
-
+async function subirComprobanteEnRuta(ruta, file) {
   const { error } = await supabase.storage
     .from(BUCKET_COMPROBANTES)
     .upload(ruta, file, { upsert: true, cacheControl: '3600' });
 
   if (error) throw error;
   return ruta;
+}
+
+/** Sube el comprobante de una venta. Guarda la RUTA (no una URL pública
+ *  — el bucket es privado) para poder pedir después una signed URL. */
+export async function subirComprobante({ negocioId, ventaId, file }) {
+  const extension = file.name.split('.').pop();
+  return subirComprobanteEnRuta(`${negocioId}/${ventaId}.${extension}`, file);
+}
+
+/** Sube el comprobante de un movimiento financiero (gasto/ingreso
+ *  manual). Mismo bucket privado, con el prefijo 'mov-' para no chocar
+ *  con los ids de venta. */
+export async function subirComprobanteMovimiento({ negocioId, movimientoId, file }) {
+  const extension = file.name.split('.').pop();
+  return subirComprobanteEnRuta(`${negocioId}/mov-${movimientoId}.${extension}`, file);
 }
 
 /** Devuelve una URL firmada de corta duración para ver un comprobante

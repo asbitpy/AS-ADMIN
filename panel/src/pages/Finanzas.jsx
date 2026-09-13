@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown, Paperclip, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
+import { subirComprobanteMovimiento, urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 
 const PERIODOS = [
@@ -62,9 +63,16 @@ export default function Finanzas() {
   const [montoNuevo, setMontoNuevo] = useState('');
   const [categoriaNueva, setCategoriaNueva] = useState('gasto');
   const [notaNueva, setNotaNueva] = useState('');
+  const [comprobanteNuevo, setComprobanteNuevo] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const guardandoRef = useRef(false);
+
+  // Detalle de un movimiento individual (tocás una fila en "Movimientos").
+  const [movimientoAbierto, setMovimientoAbierto] = useState(null);
+  const [comprobanteUrlDetalle, setComprobanteUrlDetalle] = useState(null);
+  const [cargandoComprobanteDetalle, setCargandoComprobanteDetalle] = useState(false);
+  const [subiendoComprobanteDetalle, setSubiendoComprobanteDetalle] = useState(false);
 
   const tickMovimientos = useRealtimeTick('movimientos_financieros', negocio?.id);
   const tickCaja = useRealtimeTick('caja_sesiones', negocio?.id);
@@ -195,27 +203,79 @@ export default function Finanzas() {
     guardandoRef.current = true;
     setGuardando(true);
 
-    const { error: errInsert } = await supabase.from('movimientos_financieros').insert({
-      negocio_id: negocio.id,
-      tipo: tipoNuevo,
-      monto,
-      categoria: categoriaNueva,
-      origen: 'manual',
-      notas: notaNueva || null,
-    });
-
-    guardandoRef.current = false;
-    setGuardando(false);
+    const { data: nuevo, error: errInsert } = await supabase
+      .from('movimientos_financieros')
+      .insert({
+        negocio_id: negocio.id,
+        tipo: tipoNuevo,
+        monto,
+        categoria: categoriaNueva,
+        origen: 'manual',
+        notas: notaNueva || null,
+      })
+      .select()
+      .single();
 
     if (errInsert) {
+      guardandoRef.current = false;
+      setGuardando(false);
       setError('No se pudo guardar. Probá de nuevo.');
       return;
     }
 
+    // Comprobante (opcional): en un try aparte — si falla, el movimiento
+    // ya quedó guardado igual, no tiene sentido tirar todo abajo por eso.
+    if (comprobanteNuevo) {
+      try {
+        const ruta = await subirComprobanteMovimiento({
+          negocioId: negocio.id,
+          movimientoId: nuevo.id,
+          file: comprobanteNuevo,
+        });
+        await supabase.from('movimientos_financieros').update({ comprobante_url: ruta }).eq('id', nuevo.id);
+      } catch (errComp) {
+        console.error('Error subiendo el comprobante:', errComp);
+      }
+    }
+
+    guardandoRef.current = false;
+    setGuardando(false);
     setMontoNuevo('');
     setNotaNueva('');
+    setComprobanteNuevo(null);
     setVistaForm(false);
     cargarMovimientos();
+  }
+
+  async function verComprobanteDetalle(ruta) {
+    setCargandoComprobanteDetalle(true);
+    try {
+      const url = await urlComprobante(ruta);
+      setComprobanteUrlDetalle(url);
+    } catch (err) {
+      console.error('Error obteniendo el comprobante:', err);
+    } finally {
+      setCargandoComprobanteDetalle(false);
+    }
+  }
+
+  async function adjuntarComprobanteDetalle(file) {
+    if (!file || !movimientoAbierto) return;
+    setSubiendoComprobanteDetalle(true);
+    try {
+      const ruta = await subirComprobanteMovimiento({
+        negocioId: negocio.id,
+        movimientoId: movimientoAbierto.id,
+        file,
+      });
+      await supabase.from('movimientos_financieros').update({ comprobante_url: ruta }).eq('id', movimientoAbierto.id);
+      setMovimientoAbierto((m) => ({ ...m, comprobante_url: ruta }));
+      cargarMovimientos();
+    } catch (err) {
+      console.error('Error adjuntando el comprobante:', err);
+    } finally {
+      setSubiendoComprobanteDetalle(false);
+    }
   }
 
   return (
@@ -340,6 +400,45 @@ export default function Finanzas() {
         </div>
       )}
 
+      {/* ---- Movimientos individuales: para poder abrir el detalle de
+           uno puntual, no solo ver el total por categoría ---- */}
+      {movimientos.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
+          <div className="max-h-96 space-y-1.5 overflow-y-auto rounded-xl bg-surface p-2 shadow-card">
+            {movimientos.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setMovimientoAbierto(m);
+                  setComprobanteUrlDetalle(null);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left active:bg-base"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-ink">{etiquetaCategoria(m.categoria)}</span>
+                    {m.comprobante_url && <Paperclip size={12} className="shrink-0 text-muted" />}
+                  </div>
+                  <p className="truncate text-xs text-muted">
+                    {new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', day: '2-digit', month: '2-digit' }).format(
+                      new Date(m.fecha)
+                    )}
+                    {m.notas ? ` · ${m.notas}` : ''}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className={`font-mono text-sm ${m.tipo === 'ingreso' ? 'text-accent' : 'text-danger'}`}>
+                    {m.tipo === 'ingreso' ? '+' : '−'} Gs. {Number(m.monto).toLocaleString('es-PY')}
+                  </span>
+                  <ChevronRight size={14} className="text-muted" />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {vistaForm && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setVistaForm(false)}>
           <div className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-5 pb-8" onClick={(e) => e.stopPropagation()}>
@@ -410,6 +509,31 @@ export default function Finanzas() {
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
 
+              <label className="flex items-center gap-2 rounded-xl border border-dashed border-line bg-surface px-3 py-2.5 text-xs text-muted">
+                <Paperclip size={14} className="shrink-0" />
+                <span className="flex-1 truncate">
+                  {comprobanteNuevo ? comprobanteNuevo.name : 'Adjuntar comprobante (opcional)'}
+                </span>
+                {comprobanteNuevo && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setComprobanteNuevo(null);
+                    }}
+                    className="shrink-0 text-muted active:text-danger"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => setComprobanteNuevo(e.target.files?.[0] || null)}
+                />
+              </label>
+
               {error && <p className="text-sm text-danger">{error}</p>}
 
               <button
@@ -420,6 +544,94 @@ export default function Finanzas() {
                 {guardando ? 'Guardando…' : 'Guardar'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {movimientoAbierto && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/60"
+          onClick={() => setMovimientoAbierto(null)}
+        >
+          <div
+            className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-5 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <p className="font-display text-lg text-ink">{etiquetaCategoria(movimientoAbierto.categoria)}</p>
+              <button onClick={() => setMovimientoAbierto(null)} className="text-muted">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted">Monto</span>
+                <span
+                  className={`font-mono font-medium ${
+                    movimientoAbierto.tipo === 'ingreso' ? 'text-accent' : 'text-danger'
+                  }`}
+                >
+                  {movimientoAbierto.tipo === 'ingreso' ? '+' : '−'} Gs.{' '}
+                  {Number(movimientoAbierto.monto).toLocaleString('es-PY')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Fecha</span>
+                <span className="text-ink">
+                  {new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', day: '2-digit', month: '2-digit', year: 'numeric' }).format(
+                    new Date(movimientoAbierto.fecha)
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Origen</span>
+                <span className="text-ink">{movimientoAbierto.origen === 'manual' ? 'Cargado a mano' : 'Automático'}</span>
+              </div>
+              {movimientoAbierto.notas && (
+                <div className="flex justify-between gap-3">
+                  <span className="shrink-0 text-muted">Motivo</span>
+                  <span className="text-right text-ink">{movimientoAbierto.notas}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 border-t border-line pt-3">
+              {movimientoAbierto.comprobante_url ? (
+                comprobanteUrlDetalle ? (
+                  <a href={comprobanteUrlDetalle} target="_blank" rel="noreferrer">
+                    <img
+                      src={comprobanteUrlDetalle}
+                      alt="Comprobante"
+                      className="max-h-64 w-full rounded-lg object-contain"
+                    />
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => verComprobanteDetalle(movimientoAbierto.comprobante_url)}
+                    disabled={cargandoComprobanteDetalle}
+                    className="flex items-center gap-1.5 text-xs font-medium text-accent disabled:opacity-60"
+                  >
+                    <Paperclip size={14} />
+                    {cargandoComprobanteDetalle ? 'Cargando…' : 'Ver comprobante adjunto'}
+                  </button>
+                )
+              ) : (
+                <label className="flex items-center gap-2 rounded-xl border border-dashed border-line bg-base px-3 py-2.5 text-xs text-muted">
+                  <Paperclip size={14} className="shrink-0" />
+                  <span className="flex-1">
+                    {subiendoComprobanteDetalle ? 'Subiendo…' : 'Adjuntar comprobante'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={subiendoComprobanteDetalle}
+                    onChange={(e) => adjuntarComprobanteDetalle(e.target.files?.[0])}
+                  />
+                </label>
+              )}
+            </div>
           </div>
         </div>
       )}
