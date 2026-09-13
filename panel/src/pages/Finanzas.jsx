@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown, Paperclip, ChevronRight, Check } from 'lucide-react';
+import { AlertTriangle, Lock, MessageCircle, CreditCard, Plus, X, TrendingUp, TrendingDown, Paperclip, ChevronRight, Check, Download, Trophy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
@@ -48,6 +48,27 @@ function desdePeriodo(periodo) {
   return new Date(ahora.getTime() - 30 * 86400000).toISOString();
 }
 
+// Rango del período INMEDIATAMENTE ANTERIOR, de la misma duración, para
+// poder comparar ("esta semana vendiste más o menos que la pasada").
+function rangoPeriodoAnterior(periodo) {
+  const diasPorPeriodo = { hoy: 1, semana: 7, mes: 30 };
+  const dias = diasPorPeriodo[periodo] || 7;
+  const ahora = Date.now();
+  const desde = new Date(ahora - dias * 2 * 86400000).toISOString().slice(0, 10);
+  const hasta = new Date(ahora - dias * 86400000).toISOString().slice(0, 10);
+  return { desde, hasta };
+}
+
+function calcularDelta(actual, previo) {
+  if (previo === 0) {
+    if (actual === 0) return null;
+    return { texto: 'sin datos del período anterior', positivo: actual >= 0 };
+  }
+  const cambio = ((actual - previo) / Math.abs(previo)) * 100;
+  const signo = cambio >= 0 ? '+' : '';
+  return { texto: `${signo}${cambio.toFixed(0)}% vs. período anterior`, positivo: cambio >= 0 };
+}
+
 export default function Finanzas() {
   const { negocio } = useAuth();
   const navigate = useNavigate();
@@ -58,6 +79,10 @@ export default function Finanzas() {
   const [movimientos, setMovimientos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [pendientes, setPendientes] = useState(null);
+  const [anterior, setAnterior] = useState(null); // { ingresos, egresos, neto } del período previo
+  const [topProductos, setTopProductos] = useState([]);
+  const [topServicios, setTopServicios] = useState([]);
+  const [proyectado, setProyectado] = useState(null);
 
   const [vistaForm, setVistaForm] = useState(false);
   const [tipoNuevo, setTipoNuevo] = useState('egreso');
@@ -87,12 +112,15 @@ export default function Finanzas() {
   useEffect(() => {
     if (!negocio) return;
     cargarMovimientos();
+    cargarAnterior();
+    cargarTopVendidos();
   }, [negocio, periodo, tickMovimientos]);
 
   useEffect(() => {
     if (!negocio) return;
     cargarPendientes();
-  }, [negocio, tickCaja, tickConversaciones, tickProductos]);
+    cargarProyectado();
+  }, [negocio, tickCaja, tickConversaciones, tickProductos, tickMovimientos]);
 
   async function cargarMovimientos() {
     setCargando(true);
@@ -106,6 +134,109 @@ export default function Finanzas() {
       .limit(300);
     setMovimientos(data || []);
     setCargando(false);
+  }
+
+  async function cargarAnterior() {
+    const { desde, hasta } = rangoPeriodoAnterior(periodo);
+    const { data } = await supabase
+      .from('movimientos_financieros')
+      .select('tipo, monto')
+      .eq('negocio_id', negocio.id)
+      .gte('fecha', desde)
+      .lt('fecha', hasta);
+
+    const ing = (data || []).filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0);
+    const egr = (data || []).filter((m) => m.tipo === 'egreso').reduce((a, m) => a + Number(m.monto), 0);
+    setAnterior({ ingresos: ing, egresos: egr, neto: ing - egr });
+  }
+
+  // Top 5 productos (retail) y servicios (agenda) del período, por
+  // cantidad vendida/atendida.
+  async function cargarTopVendidos() {
+    const desde = desdePeriodo(periodo).slice(0, 10);
+
+    if (tieneRetail) {
+      const { data: ventas } = await supabase
+        .from('ventas')
+        .select('id')
+        .eq('negocio_id', negocio.id)
+        .eq('estado', 'completada')
+        .gte('creado_en', desde);
+      const ids = (ventas || []).map((v) => v.id);
+
+      if (ids.length) {
+        const { data: items } = await supabase
+          .from('venta_items')
+          .select('cantidad, precio_unitario, descuento, producto:productos(nombre)')
+          .in('venta_id', ids);
+
+        const mapa = {};
+        for (const it of items || []) {
+          const nombre = it.producto?.nombre || 'Producto eliminado';
+          if (!mapa[nombre]) mapa[nombre] = { nombre, cantidad: 0, monto: 0 };
+          mapa[nombre].cantidad += it.cantidad;
+          mapa[nombre].monto += it.cantidad * Number(it.precio_unitario) - Number(it.descuento || 0);
+        }
+        setTopProductos(Object.values(mapa).sort((a, b) => b.cantidad - a.cantidad).slice(0, 5));
+      } else {
+        setTopProductos([]);
+      }
+    }
+
+    if (tieneAgenda) {
+      const { data: turnos } = await supabase
+        .from('turnos')
+        .select('monto, servicio:servicios(nombre)')
+        .eq('negocio_id', negocio.id)
+        .eq('estado', 'completado')
+        .gte('fecha_hora', desde);
+
+      const mapa = {};
+      for (const t of turnos || []) {
+        const nombre = t.servicio?.nombre || 'Servicio eliminado';
+        if (!mapa[nombre]) mapa[nombre] = { nombre, cantidad: 0, monto: 0 };
+        mapa[nombre].cantidad += 1;
+        mapa[nombre].monto += Number(t.monto) || 0;
+      }
+      setTopServicios(Object.values(mapa).sort((a, b) => b.cantidad - a.cantidad).slice(0, 5));
+    }
+  }
+
+  // Lo que se sabe que se viene, no lo que ya se movió: pedidos por
+  // WhatsApp reservados (todavía no cobrados), créditos por cobrar, y
+  // gastos fijos de este mes que faltan confirmar.
+  async function cargarProyectado() {
+    const consultas = [
+      tieneRetail
+        ? supabase.from('ventas').select('total').eq('negocio_id', negocio.id).eq('estado', 'reservada')
+        : Promise.resolve({ data: [] }),
+      tieneRetail
+        ? supabase
+            .from('creditos_clientes')
+            .select('saldo_pendiente')
+            .eq('negocio_id', negocio.id)
+            .eq('estado', 'pendiente')
+        : Promise.resolve({ data: [] }),
+      supabase.from('gastos_fijos').select('id, monto_estimado').eq('negocio_id', negocio.id).eq('activo', true),
+      supabase
+        .from('movimientos_financieros')
+        .select('gasto_fijo_id')
+        .eq('negocio_id', negocio.id)
+        .not('gasto_fijo_id', 'is', null)
+        .gte('fecha', `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Asuncion' }).format(new Date()).slice(0, 7)}-01`),
+    ];
+
+    const [reservadoRes, creditosRes, gastosFijosRes, pagadosRes] = await Promise.all(consultas);
+
+    const porCobrarReservas = (reservadoRes.data || []).reduce((a, v) => a + Number(v.total), 0);
+    const porCobrarCreditos = (creditosRes.data || []).reduce((a, c) => a + Number(c.saldo_pendiente), 0);
+
+    const idsPagados = new Set((pagadosRes.data || []).map((m) => m.gasto_fijo_id));
+    const porPagarFijos = (gastosFijosRes.data || [])
+      .filter((g) => !idsPagados.has(g.id))
+      .reduce((a, g) => a + Number(g.monto_estimado), 0);
+
+    setProyectado({ porCobrarReservas, porCobrarCreditos, porPagarFijos });
   }
 
   async function cargarPendientes() {
@@ -295,6 +426,29 @@ export default function Finanzas() {
     setVistaForm(true);
   }
 
+  // CSV (se abre bien en Excel/Sheets) con los movimientos del período
+  // que se está viendo — mismo criterio de BOM+';' que ya usa la
+  // plantilla de importar productos, para que los acentos no se rompan.
+  function exportarCSV() {
+    const encabezados = ['fecha', 'tipo', 'categoria', 'monto', 'notas', 'origen'];
+    const filas = movimientos.map((m) => [
+      m.fecha,
+      m.tipo,
+      etiquetaCategoria(m.categoria),
+      m.monto,
+      (m.notas || '').replace(/;/g, ','),
+      m.origen === 'manual' ? 'Cargado a mano' : 'Automático',
+    ]);
+    const contenido = '﻿' + [encabezados, ...filas].map((f) => f.join(';')).join('\r\n');
+    const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `finanzas_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function verComprobanteDetalle(ruta) {
     setCargandoComprobanteDetalle(true);
     try {
@@ -409,10 +563,55 @@ export default function Finanzas() {
       </div>
 
       <div className="flex gap-3">
-        <MetricPill label="Ingresos" value={formatoGsCompacto(ingresos)} tone="accent" compact />
-        <MetricPill label="Egresos" value={formatoGsCompacto(egresos)} tone="danger" compact />
-        <MetricPill label="Neto" value={formatoGsCompacto(neto)} tone={neto >= 0 ? 'accent' : 'danger'} compact />
+        <MetricPill
+          label="Ingresos"
+          value={formatoGsCompacto(ingresos)}
+          tone="accent"
+          compact
+          delta={anterior ? calcularDelta(ingresos, anterior.ingresos) : null}
+        />
+        <MetricPill
+          label="Egresos"
+          value={formatoGsCompacto(egresos)}
+          tone="danger"
+          compact
+          delta={anterior ? calcularDelta(-egresos, -anterior.egresos) : null}
+        />
+        <MetricPill
+          label="Neto"
+          value={formatoGsCompacto(neto)}
+          tone={neto >= 0 ? 'accent' : 'danger'}
+          compact
+          delta={anterior ? calcularDelta(neto, anterior.neto) : null}
+        />
       </div>
+
+      {/* ---- Lo que se viene: no es plata que ya se movió, es lo que ya
+           se sabe que hay que cobrar o pagar ---- */}
+      {proyectado &&
+        (proyectado.porCobrarReservas > 0 || proyectado.porCobrarCreditos > 0 || proyectado.porPagarFijos > 0) && (
+          <div className="space-y-1.5 rounded-xl bg-surface p-3 shadow-card">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo que se viene</p>
+            {proyectado.porCobrarReservas > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted">Pedidos reservados por cobrar</span>
+                <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarReservas)}</span>
+              </div>
+            )}
+            {proyectado.porCobrarCreditos > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted">Créditos por cobrar</span>
+                <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarCreditos)}</span>
+              </div>
+            )}
+            {proyectado.porPagarFijos > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted">Gastos fijos sin confirmar este mes</span>
+                <span className="font-mono text-danger">− {formatoGsCompacto(proyectado.porPagarFijos)}</span>
+              </div>
+            )}
+          </div>
+        )}
 
       <button
         onClick={() => {
@@ -499,11 +698,43 @@ export default function Finanzas() {
         </div>
       )}
 
+      {/* ---- Top vendidos del período ---- */}
+      {(topProductos.length > 0 || topServicios.length > 0) && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo más vendido</p>
+          <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+            {topProductos.map((p, i) => (
+              <div key={`prod-${p.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                <div className="flex items-center gap-2">
+                  {i === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
+                  <span className="text-sm text-ink">{p.nombre}</span>
+                </div>
+                <span className="shrink-0 font-mono text-xs text-muted">{p.cantidad} vendidos</span>
+              </div>
+            ))}
+            {topServicios.map((s, i) => (
+              <div key={`serv-${s.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                <div className="flex items-center gap-2">
+                  {i === 0 && topProductos.length === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
+                  <span className="text-sm text-ink">{s.nombre}</span>
+                </div>
+                <span className="shrink-0 font-mono text-xs text-muted">{s.cantidad} turnos</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ---- Movimientos individuales: para poder abrir el detalle de
            uno puntual, no solo ver el total por categoría ---- */}
       {movimientos.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
+            <button onClick={exportarCSV} className="flex items-center gap-1 text-xs font-medium text-accent">
+              <Download size={12} /> Exportar CSV
+            </button>
+          </div>
           <div className="max-h-96 space-y-1.5 overflow-y-auto rounded-xl bg-surface p-2 shadow-card">
             {movimientos.map((m) => (
               <button

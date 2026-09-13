@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Hoy from './pages/Hoy';
+import HoyRetail from './pages/HoyRetail';
 import Turnos from './pages/Turnos';
 import Venta from './pages/Venta';
 import Ventas from './pages/Ventas';
@@ -49,8 +50,9 @@ export default function App() {
       <Route element={<Layout />}>
         {/* La home cambia según los módulos activos del negocio (ver
             AS_ADMIN_arquitectura_unificada_v3.md, sección 3):
-            servicio -> Hoy, retail -> Vender, sin ninguno -> Productos */}
-        <Route path="/" element={tieneAgenda ? <Hoy /> : tieneRetail ? <Venta /> : <Productos />} />
+            servicio -> Hoy, retail -> HoyRetail (resumen del día +
+            caja), sin ninguno -> Productos */}
+        <Route path="/" element={tieneAgenda ? <Hoy /> : tieneRetail ? <HoyRetail /> : <Productos />} />
         {tieneAgenda && <Route path="/turnos" element={<Turnos />} />}
         {tieneRetail && <Route path="/vender" element={<Venta />} />}
         {tieneRetail && <Route path="/ventas" element={<Ventas />} />}

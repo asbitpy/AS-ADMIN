@@ -4,6 +4,7 @@ const { handleIncomingMessage } = require('./lib/messageHandler');
 const { procesarRecordatorios } = require('./lib/recordatorios');
 const { liberarReservasVencidas } = require('./lib/reservas');
 const { procesarAlertasStock } = require('./lib/alertasStock');
+const { procesarResumenSemanal } = require('./lib/resumenSemanal');
 const { verificarFirmaMeta } = require('./lib/seguridadWebhook');
 
 const app = express();
@@ -74,6 +75,15 @@ if (process.env.ALERTAS_STOCK_ACTIVAS !== 'false') {
   setInterval(() => {
     procesarAlertasStock().catch((err) =>
       console.error('Error procesando alertas de stock:', err)
+    );
+  }, 5 * 60 * 1000);
+}
+
+// Resumen semanal al dueño, los lunes. Mismo NOTA que arriba.
+if (process.env.RESUMEN_SEMANAL_ACTIVO !== 'false') {
+  setInterval(() => {
+    procesarResumenSemanal().catch((err) =>
+      console.error('Error procesando resumen semanal:', err)
     );
   }, 5 * 60 * 1000);
 }

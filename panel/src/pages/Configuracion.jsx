@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import HorariosAtencion from '../components/HorariosAtencion';
 
 export default function Configuracion() {
   const { negocio } = useAuth();
   const [servicios, setServicios] = useState([]);
+  const [profesionales, setProfesionales] = useState([]);
   const [feriados, setFeriados] = useState([]);
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion_minutos: 30 });
+  const [nuevoProfesional, setNuevoProfesional] = useState('');
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', motivo: '' });
   const [direccion, setDireccion] = useState(negocio?.direccion || '');
   const [sitioWeb, setSitioWeb] = useState(negocio?.sitio_web_url || '');
@@ -15,6 +18,7 @@ export default function Configuracion() {
   const [guardandoSitio, setGuardandoSitio] = useState(false);
 
   const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
+  const tieneAgenda = (negocio?.modulos_activos || []).includes('agenda');
 
   useEffect(() => {
     if (!negocio) return;
@@ -22,11 +26,13 @@ export default function Configuracion() {
   }, [negocio]);
 
   async function cargar() {
-    const [s, f] = await Promise.all([
+    const [s, p, f] = await Promise.all([
       supabase.from('servicios').select('*').eq('negocio_id', negocio.id).eq('activo', true).order('nombre'),
+      supabase.from('profesionales').select('*').eq('negocio_id', negocio.id).eq('activo', true).order('nombre'),
       supabase.from('feriados_excepciones').select('*').eq('negocio_id', negocio.id).order('fecha'),
     ]);
     setServicios(s.data || []);
+    setProfesionales(p.data || []);
     setFeriados(f.data || []);
   }
 
@@ -57,6 +63,19 @@ export default function Configuracion() {
 
   async function borrarServicio(id) {
     await supabase.from('servicios').update({ activo: false }).eq('id', id);
+    cargar();
+  }
+
+  async function agregarProfesional(e) {
+    e.preventDefault();
+    if (!nuevoProfesional.trim()) return;
+    await supabase.from('profesionales').insert({ negocio_id: negocio.id, nombre: nuevoProfesional.trim() });
+    setNuevoProfesional('');
+    cargar();
+  }
+
+  async function borrarProfesional(id) {
+    await supabase.from('profesionales').update({ activo: false }).eq('id', id);
     cargar();
   }
 
@@ -95,6 +114,12 @@ export default function Configuracion() {
               Guardar
             </button>
           </div>
+
+          {tieneAgenda && (
+            <div className="mt-3">
+              <HorariosAtencion negocioId={negocio.id} configActual={negocio.config} />
+            </div>
+          )}
         </div>
       </section>
 
@@ -178,6 +203,37 @@ export default function Configuracion() {
           </button>
         </form>
       </section>
+
+      {tieneAgenda && (
+        <section>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Profesionales</p>
+          <p className="mt-1 text-xs text-muted">
+            Con más de uno cargado, el bot le pregunta al cliente con quién prefiere antes de mostrarle horarios.
+          </p>
+          <div className="mt-2 space-y-2">
+            {profesionales.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-card">
+                <p className="text-sm font-medium text-ink">{p.nombre}</p>
+                <button onClick={() => borrarProfesional(p.id)} className="rounded-full p-2 text-muted active:text-danger">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={agregarProfesional} className="mt-3 flex gap-2 rounded-xl bg-surface p-3 shadow-card">
+            <input
+              placeholder="Nombre del profesional"
+              value={nuevoProfesional}
+              onChange={(e) => setNuevoProfesional(e.target.value)}
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            <button className="rounded-lg bg-accent-soft px-3 py-2 text-xs font-medium text-accent">
+              <Plus size={14} />
+            </button>
+          </form>
+        </section>
+      )}
 
       <section>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">Feriados y excepciones</p>

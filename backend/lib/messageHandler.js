@@ -1,11 +1,12 @@
 const supabase = require('./supabase');
-const { parseIncomingMessage, sendTemplate } = require('./whatsapp');
+const { parseIncomingMessage, sendTemplate, sendText } = require('./whatsapp');
 const { clasificarIntencion } = require('./claude');
 const { credencialesDeNegocio } = require('./credenciales');
 const { responderTexto, responderBotones, responderLista } = require('./responder');
 const respuestas = require('./respuestas');
 const flujoAgendar = require('./flujoAgendar');
 const flujoPedido = require('./flujoPedido');
+const flujoListaEspera = require('./flujoListaEspera');
 const { esMensajeDelDueno, manejarMensajeDueno } = require('./dueno');
 const { formatearFranjaLarga } = require('./agenda');
 
@@ -43,11 +44,43 @@ async function handleIncomingMessage(rawBody) {
 
   // El dueño le puede escribir al mismo número para avisar que repuso
   // stock — no es un cliente, así que no crea cliente/conversación ni
-  // pasa por el clasificador de intenciones de clientes.
+  // pasa por el clasificador de intenciones de clientes. Mismo criterio
+  // de respaldo que abajo, por si Claude o Supabase fallan acá también.
   if (esMensajeDelDueno(msg, negocio)) {
-    return manejarMensajeDueno(msg, negocio);
+    try {
+      await manejarMensajeDueno(msg, negocio);
+    } catch (err) {
+      console.error(`Error procesando mensaje del dueño (negocio ${negocio.id}):`, err);
+      try {
+        await sendText(negocio.wa, msg.from, 'Uy, tuve un problema procesando eso 🙏 Probá de nuevo en un momento.');
+      } catch (errFallback) {
+        console.error('Además falló el mensaje de respaldo:', errFallback);
+      }
+    }
+    return;
   }
 
+  // Red de seguridad: si Claude, Supabase, o cualquier otra cosa falla
+  // en el medio, el cliente no se queda sin ninguna respuesta (antes,
+  // un error acá se tragaba en silencio en el catch del webhook y el
+  // cliente nunca se enteraba de nada).
+  try {
+    await procesarMensajeCliente(msg, negocio);
+  } catch (err) {
+    console.error(`Error procesando mensaje de ${msg.from} (negocio ${negocio.id}):`, err);
+    try {
+      await sendText(
+        negocio.wa,
+        msg.from,
+        'Uy, tuve un problema para responderte 🙏 Dame un momento y probá de nuevo, o escribime "hablar con alguien" si es urgente.'
+      );
+    } catch (errFallback) {
+      console.error('Además falló el mensaje de respaldo:', errFallback);
+    }
+  }
+}
+
+async function procesarMensajeCliente(msg, negocio) {
   const cliente = await obtenerOCrearCliente(negocio.id, msg.from);
   const { conversacion, esNueva } = await obtenerOCrearConversacion(negocio.id, cliente.id);
 
@@ -91,7 +124,7 @@ async function handleIncomingMessage(rawBody) {
   let clasificacion = null;
 
   // 2) ¿Es una respuesta de un paso de un flujo guiado en curso? (sin Claude)
-  if (!intencion && /^(serv_|franja_|pq_|le_)/.test(entrada)) {
+  if (!intencion && /^(serv_|franja_|pq_|le_|prof_)/.test(entrada)) {
     const manejado = await flujoAgendar.continuar({
       entrada,
       clasificacion: null,
@@ -111,6 +144,10 @@ async function handleIncomingMessage(rawBody) {
       conversacion,
       to: msg.from,
     });
+    if (manejado) return;
+  }
+  if (!intencion && /^oferta_/.test(entrada)) {
+    const manejado = await flujoListaEspera.continuar({ entrada, negocio, conversacion, to: msg.from });
     if (manejado) return;
   }
 
@@ -247,7 +284,11 @@ async function gestionarTurnoExistente({ intencion, negocio, cliente, conversaci
 
   if (intencion === 'cancelar_turno') {
     await supabase.from('turnos').update({ estado: 'cancelado' }).eq('id', turno.id);
-    // TODO: ofrecer la franja liberada al primero de lista_espera
+    await flujoListaEspera.ofrecerFranjaLiberada({
+      negocio,
+      servicioId: turno.servicio_id,
+      ts: new Date(turno.fecha_hora).getTime(),
+    });
     return responderTexto(negocio.wa, conversacion.id, to, respuestas.turnoCancelado(), intencion);
   }
 

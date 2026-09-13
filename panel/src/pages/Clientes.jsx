@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Phone, Calendar, ShoppingBag } from 'lucide-react';
+import { ChevronLeft, Phone, Calendar, ShoppingBag, CreditCard, Plus, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -111,14 +111,59 @@ export default function Clientes() {
 }
 
 function FichaCliente({ cliente, onVolver, onActualizado }) {
+  const { negocio } = useAuth();
+  const tieneRetail = (negocio?.modulos_activos || []).some((m) => m === 'pos' || m === 'inventario');
   const [nombre, setNombre] = useState(cliente.nombre);
   const [notas, setNotas] = useState(cliente.notas || '');
   const [guardando, setGuardando] = useState(false);
   const [historial, setHistorial] = useState(null);
+  const [creditos, setCreditos] = useState([]);
+  const [vistaCredito, setVistaCredito] = useState(false);
+  const [montoCredito, setMontoCredito] = useState('');
+  const [vencimientoCredito, setVencimientoCredito] = useState('');
+  const [guardandoCredito, setGuardandoCredito] = useState(false);
 
   useEffect(() => {
     cargarHistorial();
+    if (tieneRetail) cargarCreditos();
   }, [cliente.id]);
+
+  async function cargarCreditos() {
+    const { data } = await supabase
+      .from('creditos_clientes')
+      .select('*')
+      .eq('cliente_id', cliente.id)
+      .order('fecha_vencimiento', { ascending: true, nullsFirst: false });
+    setCreditos(data || []);
+  }
+
+  async function marcarPagado(creditoId) {
+    await supabase
+      .from('creditos_clientes')
+      .update({ estado: 'pagado', saldo_pendiente: 0 })
+      .eq('id', creditoId);
+    cargarCreditos();
+  }
+
+  async function agregarCredito(e) {
+    e.preventDefault();
+    const monto = Number(montoCredito);
+    if (!monto || monto <= 0) return;
+
+    setGuardandoCredito(true);
+    await supabase.from('creditos_clientes').insert({
+      negocio_id: negocio.id,
+      cliente_id: cliente.id,
+      monto,
+      saldo_pendiente: monto,
+      fecha_vencimiento: vencimientoCredito || null,
+    });
+    setGuardandoCredito(false);
+    setMontoCredito('');
+    setVencimientoCredito('');
+    setVistaCredito(false);
+    cargarCreditos();
+  }
 
   async function cargarHistorial() {
     const [turnosRes, ventasRes] = await Promise.all([
@@ -220,6 +265,79 @@ function FichaCliente({ cliente, onVolver, onActualizado }) {
           <p className="text-xs text-muted">Gastado</p>
         </div>
       </div>
+
+      {tieneRetail && (
+        <div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Créditos</p>
+            <button
+              onClick={() => setVistaCredito((v) => !v)}
+              className="flex items-center gap-1 text-xs font-medium text-accent"
+            >
+              <Plus size={12} /> Agregar
+            </button>
+          </div>
+
+          {vistaCredito && (
+            <form onSubmit={agregarCredito} className="mt-2 space-y-2 rounded-xl bg-surface p-3 shadow-card">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  placeholder="Monto Gs."
+                  value={montoCredito}
+                  onChange={(e) => setMontoCredito(e.target.value)}
+                  className="flex-1 rounded-lg border border-line bg-base px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+                />
+                <input
+                  type="date"
+                  value={vencimientoCredito}
+                  onChange={(e) => setVencimientoCredito(e.target.value)}
+                  className="flex-1 rounded-lg border border-line bg-base px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={guardandoCredito}
+                className="w-full rounded-lg bg-accent py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+              >
+                {guardandoCredito ? 'Guardando…' : 'Registrar crédito'}
+              </button>
+            </form>
+          )}
+
+          <div className="mt-2 space-y-2">
+            {creditos.length === 0 && !vistaCredito && (
+              <p className="pt-2 text-center text-sm text-muted">Sin créditos registrados.</p>
+            )}
+            {creditos.map((cr) => (
+              <div key={cr.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-card">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger-soft">
+                    <CreditCard size={14} className="text-danger" />
+                  </span>
+                  <div>
+                    <p className="text-sm text-ink">
+                      Gs. {Number(cr.saldo_pendiente).toLocaleString('es-PY')}
+                      {cr.estado === 'pagado' && <span className="ml-1.5 text-xs text-accent">· pagado</span>}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {cr.fecha_vencimiento ? `Vence ${fechaTexto(cr.fecha_vencimiento)}` : 'Sin vencimiento'}
+                    </p>
+                  </div>
+                </div>
+                {cr.estado !== 'pagado' && (
+                  <button
+                    onClick={() => marcarPagado(cr.id)}
+                    className="flex shrink-0 items-center gap-1 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent"
+                  >
+                    <Check size={12} /> Pagado
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">Historial</p>

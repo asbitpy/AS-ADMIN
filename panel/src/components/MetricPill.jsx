@@ -1,4 +1,4 @@
-export default function MetricPill({ label, value, tone = 'ink', onClick, compact = false }) {
+export default function MetricPill({ label, value, tone = 'ink', onClick, compact = false, delta = null }) {
   const Component = onClick ? 'button' : 'div';
   // El número siempre en 'ink' (blanco): un celeste saturado sobre un
   // fondo tan oscuro pasa el contraste "en el papel" pero el ojo lo
@@ -21,6 +21,7 @@ export default function MetricPill({ label, value, tone = 'ink', onClick, compac
     >
       <div className={`truncate font-display font-semibold leading-none ${tamano} ${valorToneClass}`}>{value}</div>
       <div className={`mt-1 text-xs ${labelToneClass}`}>{label}</div>
+      {delta && <div className={`mt-0.5 truncate text-[10px] ${delta.positivo ? 'text-accent' : 'text-danger'}`}>{delta.texto}</div>}
     </Component>
   );
 }

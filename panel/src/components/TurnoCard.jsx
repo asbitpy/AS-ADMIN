@@ -20,7 +20,10 @@ export default function TurnoCard({ turno, onCambiarEstado }) {
       <div className="flex items-start justify-between">
         <div>
           <p className="font-medium text-ink">{turno.cliente?.nombre || 'Cliente'}</p>
-          <p className="text-sm text-muted">{turno.servicio?.nombre}</p>
+          <p className="text-sm text-muted">
+            {turno.servicio?.nombre}
+            {turno.profesional?.nombre ? ` · ${turno.profesional.nombre}` : ''}
+          </p>
           <p className="mt-1 font-mono text-xs text-muted">{fechaHoraTexto(turno.fecha_hora)}</p>
         </div>
         <EstadoBadge estado={turno.estado} />

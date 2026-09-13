@@ -33,7 +33,9 @@ export default function Layout() {
   const tabs = [
     tieneAgenda && { to: '/', label: 'Hoy', icon: CalendarHeart, end: true },
     tieneAgenda && { to: '/turnos', label: 'Turnos', icon: CalendarDays },
-    tieneRetail && { to: tieneAgenda ? '/vender' : '/', label: 'Vender', icon: ShoppingCart, end: !tieneAgenda },
+    // Sin agenda, "/" es la portada de retail (HoyRetail) en vez de Vender.
+    !tieneAgenda && tieneRetail && { to: '/', label: 'Hoy', icon: CalendarHeart, end: true },
+    tieneRetail && { to: '/vender', label: 'Vender', icon: ShoppingCart },
     tieneRetail && { to: '/ventas', label: 'Ventas', icon: Receipt },
     tieneRetail && { to: '/productos', label: 'Productos', icon: Package },
     // Clientes es del núcleo común: sirve tanto a servicio como a retail

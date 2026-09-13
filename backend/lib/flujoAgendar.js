@@ -27,6 +27,16 @@ async function cargarServicios(negocioId) {
   return data || [];
 }
 
+async function cargarProfesionalesActivos(negocioId) {
+  const { data } = await supabase
+    .from('profesionales')
+    .select('*')
+    .eq('negocio_id', negocioId)
+    .eq('activo', true)
+    .order('nombre');
+  return data || [];
+}
+
 /** Arranca el flujo de agendado (o de reprogramación de un turno existente) */
 async function iniciar({ negocio, conversacion, to, turnoAReprogramar = null }) {
   const servicios = await cargarServicios(negocio.id);
@@ -43,9 +53,16 @@ async function iniciar({ negocio, conversacion, to, turnoAReprogramar = null }) 
       paso: 'elegir_franja',
       servicio_id: servicio.id,
       turno_a_reprogramar: turnoAReprogramar.id,
+      // Reprogramar mantiene el mismo profesional de siempre, no se
+      // vuelve a preguntar.
+      profesional_id: turnoAReprogramar.profesional_id || null,
     };
     await guardarContexto(conversacion.id, ctx);
-    return ofrecerFranjas({ negocio, conversacion, to, servicio });
+    // Ojo: se pasa 'contexto: ctx' explícito (no 'conversacion' tal
+    // cual) — si no, ofrecerFranjas reconstruye el contexto a partir
+    // del que había ANTES de este guardarContexto y se pierde
+    // turno_a_reprogramar/profesional_id apenas vuelva a guardar.
+    return ofrecerFranjas({ negocio, conversacion: { ...conversacion, contexto: ctx }, to, servicio });
   }
 
   await guardarContexto(conversacion.id, { flujo: 'agendar', paso: 'elegir_servicio' });
@@ -64,7 +81,8 @@ async function iniciar({ negocio, conversacion, to, turnoAReprogramar = null }) 
 }
 
 async function ofrecerFranjas({ negocio, conversacion, to, servicio, filtroFecha = null }) {
-  const franjas = await agenda.obtenerFranjasDisponibles({ negocio, servicio, filtroFecha });
+  const profesionalId = conversacion.contexto?.profesional_id || null;
+  const franjas = await agenda.obtenerFranjasDisponibles({ negocio, servicio, filtroFecha, profesionalId });
 
   if (!franjas.length) {
     const ctx = { ...conversacion.contexto, flujo: 'agendar', paso: 'lista_espera', servicio_id: servicio.id };
@@ -115,7 +133,50 @@ async function continuar({ entrada, clasificacion, negocio, cliente, conversacio
         return iniciar({ negocio, conversacion, to }).then(() => true);
       }
 
-      await guardarContexto(conversacion.id, { ...ctx, paso: 'para_quien', servicio_id: servicio.id });
+      const profesionales = await cargarProfesionalesActivos(negocio.id);
+
+      if (profesionales.length > 1) {
+        await guardarContexto(conversacion.id, { ...ctx, paso: 'elegir_profesional', servicio_id: servicio.id });
+        await responderLista(
+          negocio.wa,
+          conversacion.id,
+          to,
+          '¿Con quién preferís?',
+          'Ver opciones',
+          [
+            { id: 'prof_cualquiera', title: 'El primero disponible' },
+            ...profesionales.map((p) => ({ id: `prof_${p.id}`, title: p.nombre })),
+          ]
+        );
+        return true;
+      }
+
+      await guardarContexto(conversacion.id, {
+        ...ctx,
+        paso: 'para_quien',
+        servicio_id: servicio.id,
+        profesional_id: profesionales[0]?.id || null,
+      });
+      await responderBotones(negocio.wa, conversacion.id, to, respuestas.preguntaParaQuien(), [
+        { id: 'pq_mi', title: 'Para mí' },
+        { id: 'pq_otro', title: 'Para otra persona' },
+      ]);
+      return true;
+    }
+
+    case 'elegir_profesional': {
+      if (!entrada?.startsWith('prof_')) return false;
+      const valor = entrada.replace('prof_', '');
+
+      let profesionalId;
+      if (valor === 'cualquiera') {
+        const profesionales = await cargarProfesionalesActivos(negocio.id);
+        profesionalId = profesionales[0]?.id || null;
+      } else {
+        profesionalId = valor;
+      }
+
+      await guardarContexto(conversacion.id, { ...ctx, paso: 'para_quien', profesional_id: profesionalId });
       await responderBotones(negocio.wa, conversacion.id, to, respuestas.preguntaParaQuien(), [
         { id: 'pq_mi', title: 'Para mí' },
         { id: 'pq_otro', title: 'Para otra persona' },
@@ -179,9 +240,10 @@ async function continuar({ entrada, clasificacion, negocio, cliente, conversacio
       if (!entrada?.startsWith('franja_')) return false;
 
       const ts = Number(entrada.replace('franja_', ''));
+      const profesionalId = ctx.profesional_id || null;
 
       // Revalidamos: pudo ocuparse mientras el cliente decidía.
-      const libre = await agenda.franjaSigueDisponible({ negocio, servicio, ts });
+      const libre = await agenda.franjaSigueDisponible({ negocio, servicio, ts, profesionalId });
       if (!libre) {
         return franjaTomada({ negocio, conversacion, to, servicio, ctx });
       }
@@ -194,6 +256,7 @@ async function continuar({ entrada, clasificacion, negocio, cliente, conversacio
             fecha_hora: new Date(ts).toISOString(),
             duracion_minutos: servicio.duracion_minutos,
             estado: 'pendiente',
+            profesional_id: profesionalId,
             recordatorio_24h_enviado: false,
             recordatorio_mismo_dia_enviado: false,
             actualizado_en: new Date().toISOString(),
@@ -204,6 +267,7 @@ async function continuar({ entrada, clasificacion, negocio, cliente, conversacio
           negocio_id: negocio.id,
           cliente_id: cliente.id,
           servicio_id: servicio.id,
+          profesional_id: profesionalId,
           fecha_hora: new Date(ts).toISOString(),
           duracion_minutos: servicio.duracion_minutos,
           estado: 'pendiente',

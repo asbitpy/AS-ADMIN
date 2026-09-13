@@ -56,19 +56,30 @@ function formatearFranjaLarga(ts) {
   return `${fecha} a las ${hora}hs`;
 }
 
-async function cargarOcupadosYFeriados(negocioId, desdeISO, hastaISO) {
+async function cargarOcupadosYFeriados(negocioId, desdeISO, hastaISO, profesionalId) {
+  let queryTurnos = supabase
+    // La duración sale de la propia fila del turno (no del servicio):
+    // es la misma que usa la restricción turnos_sin_solape en la base,
+    // así lo que el bot considera ocupado y lo que la base rechaza son
+    // exactamente lo mismo.
+    .from('turnos')
+    .select('fecha_hora, duracion_minutos')
+    .eq('negocio_id', negocioId)
+    .in('estado', ['pendiente', 'confirmado', 'reprogramado'])
+    .gte('fecha_hora', desdeISO)
+    .lte('fecha_hora', hastaISO);
+
+  // Sin profesionalId (negocio de un solo profesional, o "cualquiera"
+  // resuelto por el que llama): se sigue considerando ocupado TODO turno
+  // del negocio, exactamente el comportamiento de siempre. Con
+  // profesionalId, solo cuentan como ocupados los turnos de esa persona
+  // — dos profesionales pueden tener turnos a la misma hora sin pisarse.
+  if (profesionalId) {
+    queryTurnos = queryTurnos.eq('profesional_id', profesionalId);
+  }
+
   const [turnosRes, feriadosRes] = await Promise.all([
-    supabase
-      // La duración sale de la propia fila del turno (no del servicio):
-      // es la misma que usa la restricción turnos_sin_solape en la base,
-      // así lo que el bot considera ocupado y lo que la base rechaza son
-      // exactamente lo mismo.
-      .from('turnos')
-      .select('fecha_hora, duracion_minutos')
-      .eq('negocio_id', negocioId)
-      .in('estado', ['pendiente', 'confirmado', 'reprogramado'])
-      .gte('fecha_hora', desdeISO)
-      .lte('fecha_hora', hastaISO),
+    queryTurnos,
     supabase.from('feriados_excepciones').select('fecha').eq('negocio_id', negocioId),
   ]);
 
@@ -101,7 +112,7 @@ function esAdyacente(slotInicio, slotFin, ocupados) {
  * Formato esperado de horarios en negocios.config:
  * { "horarios": { "lun": ["08:00-12:00", "15:00-19:00"], "mar": [...], ... } }
  */
-async function obtenerFranjasDisponibles({ negocio, servicio, diasVista = 7, max = 4, filtroFecha = null }) {
+async function obtenerFranjasDisponibles({ negocio, servicio, diasVista = 7, max = 4, filtroFecha = null, profesionalId = null }) {
   const horarios = negocio.config?.horarios || {};
   const durMin = servicio.duracion_minutos || 30;
   const durMs = durMin * 60000;
@@ -113,7 +124,8 @@ async function obtenerFranjasDisponibles({ negocio, servicio, diasVista = 7, max
   const { ocupados, feriados } = await cargarOcupadosYFeriados(
     negocio.id,
     new Date(ahora).toISOString(),
-    new Date(hasta).toISOString()
+    new Date(hasta).toISOString(),
+    profesionalId
   );
 
   const candidatas = [];
@@ -159,12 +171,13 @@ async function obtenerFranjasDisponibles({ negocio, servicio, diasVista = 7, max
 }
 
 /** Revalida que una franja puntual siga libre antes de confirmar el turno */
-async function franjaSigueDisponible({ negocio, servicio, ts }) {
+async function franjaSigueDisponible({ negocio, servicio, ts, profesionalId = null }) {
   const durMs = (servicio.duracion_minutos || 30) * 60000;
   const { ocupados, feriados } = await cargarOcupadosYFeriados(
     negocio.id,
     new Date(ts - 12 * 3600000).toISOString(),
-    new Date(ts + 12 * 3600000).toISOString()
+    new Date(ts + 12 * 3600000).toISOString(),
+    profesionalId
   );
   const { fechaISO } = partesLocales(ts);
   if (feriados.has(fechaISO)) return false;

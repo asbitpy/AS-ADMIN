@@ -27,7 +27,7 @@ export default function Turnos() {
     setCargando(true);
     let query = supabase
       .from('turnos')
-      .select('*, cliente:clientes(nombre, telefono), servicio:servicios(nombre)')
+      .select('*, cliente:clientes(nombre, telefono), servicio:servicios(nombre), profesional:profesionales(nombre)')
       .eq('negocio_id', negocio.id)
       .order('fecha_hora', { ascending: filtro !== 'todos' });
 

@@ -55,10 +55,10 @@ Hecho en el backend actual:
       del bot, que dejaba una ventana entre el chequeo y el insert
 
 Pendiente para cerrar la Fase 1:
-- [ ] Ofrecer franja liberada al primero de la lista de espera al cancelarse un turno
+- [x] Ofrecer franja liberada al primero de la lista de espera al cancelarse un turno (`backend/lib/flujoListaEspera.js`) — si declina o la franja se ocupó justo antes, cae en cascada al siguiente. No cubre todavía el caso de silencio (sin responder, sin decidir): no hay timeout que pase al siguiente si nadie contesta
 - [x] Notificación al dueño cuando una conversación se deriva a humano — usa `negocio.config.telefono_dueno` (mismo campo que las otras alertas). Falta correr `019_notificacion_derivacion.sql` y dar de alta + esperar aprobación de Meta de la plantilla (`template_derivacion_humano`)
 - [ ] Probar de punta a punta con el número de prueba de Meta (10-15 conversaciones simuladas, incluyendo los casos especiales de la tabla del árbol v2)
-- [ ] Manejo de errores y reintentos si la API de Claude o Supabase fallan mediante una respuesta segura ("dame un momento 🙌" + log)
+- [x] Red de seguridad si Claude, Supabase o cualquier otra cosa falla procesando un mensaje: antes se perdía en silencio (el cliente se quedaba sin ninguna respuesta); ahora se loguea con contexto y se manda un mensaje de respaldo ("tuve un problema, dame un momento 🙏"). Cubre tanto el canal de clientes como el del dueño. No incluye reintentos automáticos (ej. reintentar la llamada a Claude antes de rendirse) — solo la respuesta segura
 - [ ] Desplegar en hosting definitivo con URL estable (adiós ngrok) — bloquea probar cualquiera de los puntos de arriba con WhatsApp real
 
 ## 4. Desarrollo — Panel del dueño (parte de Fase 1) — estado actual: ~85%
@@ -71,10 +71,10 @@ Pendiente para cerrar la Fase 1:
 - [x] ABM de servicios y precios, ABM de feriados/excepciones, editar dirección
 - [x] Marcar turno como **completado** (dispara el ingreso automático), **no_show** o **cancelado**
 - [x] Dar de alta el usuario del dueño en Supabase Auth y vincularlo a su negocio — ya en uso activo durante todo el desarrollo
-- [ ] Historial completo de conversación al tocar una alerta (hoy abre WhatsApp directo)
-- [ ] Editar horarios de atención desde la UI (hoy se edita en Supabase directo)
-- [ ] Selector de profesional para clínicas con más de uno
-- [ ] Probar el flujo de empleado de punta a punta: crear una cuenta de prueba en Supabase Auth, agregarla desde Equipo con un rol, loguearse con esa cuenta y confirmar qué ve (migración 011 ya corrida y verificada — falta este último paso de prueba real)
+- [x] Historial completo de conversación al tocar una alerta (`HistorialConversacion.jsx`) — WhatsApp sigue siendo el botón para responder, pero ya no hay que abrirlo a ciegas para saber de qué se trata
+- [x] Editar horarios de atención desde la UI (`HorariosAtencion.jsx`, en Configuración) — mismo formato que ya lee el motor de disponibilidad del bot
+- [x] Selector de profesional para clínicas con más de uno — ABM en Configuración; con 2+ profesionales activos el bot pregunta "¿con quién preferís?" (o "el primero disponible") antes de mostrar franjas; `agenda.js` ahora filtra ocupados por profesional, no solo por negocio. De paso se corrigió un bug real: al reprogramar, el contexto de la conversación se pisaba solo y perdía qué turno se estaba reprogramando
+- [x] Probar el flujo de empleado de punta a punta: cuenta de prueba en Supabase Auth, agregada desde Equipo con rol Cajero, logueada y confirmado que la barra de navegación y las rutas respetan el rol (sin Finanzas/Equipo/Config)
 
 ## 5. Desarrollo — Finanzas
 
@@ -82,11 +82,11 @@ Pendiente para cerrar la Fase 1:
 - [x] Vista de caja: ingresos vs egresos por día/semana/mes, con lo que "necesita atención" arriba de todo (caja sin cerrar, créditos vencidos, etc.)
 - [x] Detalle de cada movimiento financiero individual (no solo el total por categoría) + comprobante adjunto (mismo bucket privado que las ventas) + quién lo cargó (`registrado_por`)
 - [x] Gastos fijos mensuales (alquiler, luz, agua...): se definen una vez y Finanzas recuerda confirmarlos el día que corresponde — **nunca se cargan solos**, siempre los confirma una persona (mismo criterio que los comprobantes). Migración `018_gastos_fijos.sql`, componente `GastosFijos.jsx`
-- [ ] Top de servicios/productos más vendidos
-- [ ] Exportar a Excel/PDF (para el contador / e-Kuatia)
-- [ ] Resumen semanal proactivo al dueño ("esta semana facturaste X")
-- [ ] Flujo de caja **proyectado** (lo que falta cobrar/pagar — pedidos reservados, créditos, y ahora también los gastos fijos del mes que todavía no se confirmaron — juntar todo en una sola vista de "lo que se viene")
-- [ ] Comparación vs. período anterior en los 3 números principales (Ingresos/Egresos/Neto)
+- [x] Top de servicios/productos más vendidos ("Lo más vendido", top 5 por cantidad)
+- [x] Exportar a CSV (se abre bien en Excel/Sheets) — PDF queda pendiente, necesitaría sumar una librería nueva al panel
+- [x] Resumen semanal proactivo al dueño ("esta semana facturaste X") — `backend/lib/resumenSemanal.js`, los lunes en horario comercial; falta correr `020_resumen_semanal.sql` y dar de alta + esperar aprobación de Meta de la plantilla (`template_resumen_semanal`)
+- [x] Flujo de caja **proyectado** ("Lo que se viene": pedidos reservados por cobrar, créditos por cobrar, gastos fijos del mes sin confirmar)
+- [x] Comparación vs. período anterior en los 3 números principales (Ingresos/Egresos/Neto)
 
 ## 6. Visión y voz (Fase futura, sin empezar)
 
@@ -133,11 +133,11 @@ Pendiente para cerrar la Fase 1:
 - [x] Panel: apertura y cierre de caja con arqueo (`CajaBar.jsx`)
 - [x] Panel: comprobante de pago adjunto a la venta (respaldo, nunca verificación automática — ver la nota en sección 6)
 - [ ] Definir `modulos_activos` al dar de alta un negocio desde una UI (por ahora se activa a mano en Supabase)
-- [ ] Panel: vista "Hoy" propia para negocios retail (hoy un negocio sin `agenda` cae directo a Productos)
+- [x] Panel: vista "Hoy" propia para negocios retail (`HoyRetail.jsx`) — resumen del día, caja, alertas de stock/conversaciones, últimas ventas
 - [ ] Reporte de productos más vendidos
 - [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
 - [ ] Usuarios multiusuario con roles y permisos más finos (hoy existen los roles base de la migración 011; falta UI para permisos por excepción)
-- [ ] Créditos de clientes: seguimiento de deuda desde el panel (la tabla y la alerta de vencidos ya existen)
+- [x] Créditos de clientes: seguimiento de deuda desde el panel (ficha del cliente en Clientes) — registrar crédito manual y marcar pagado. Todavía no está conectado a "vender a crédito" desde el POS (`Venta.jsx` no ofrece 'credito' como método de pago) — eso sigue pendiente si hace falta
 
 ## 11. Bot de WhatsApp retail (ver `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md` para el detalle de diseño)
 
