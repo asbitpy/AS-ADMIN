@@ -59,6 +59,30 @@ function desdePeriodo(periodo) {
   return new Date(ahora.getTime() - 30 * 86400000).toISOString();
 }
 
+// "YYYY-MM-DD" + n días → "YYYY-MM-DD". Se ancla a mediodía UTC (no a
+// medianoche local) justamente para que sumar un día no se corra por el
+// huso horario del navegador — solo importan las partes de fecha, nunca
+// la hora real.
+function sumarDiasISO(fechaISO, dias) {
+  const [y, m, d] = fechaISO.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCDate(dt.getUTCDate() + dias);
+  return dt.toISOString().slice(0, 10);
+}
+
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+// Mismo anclaje a mediodía UTC que sumarDiasISO, por la misma razón.
+function nombreDiaISO(fechaISO) {
+  const [y, m, d] = fechaISO.split('-').map(Number);
+  return DIAS_SEMANA[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()];
+}
+
+function fechaDDMMYYYY(fechaISO) {
+  const [y, m, d] = fechaISO.split('-');
+  return `${d}/${m}/${y}`;
+}
+
 // Rango del período INMEDIATAMENTE ANTERIOR, de la misma duración, para
 // poder comparar ("esta semana vendiste más o menos que la pasada").
 function rangoPeriodoAnterior(periodo) {
@@ -103,6 +127,10 @@ export default function Finanzas() {
   // no estén cargadas, se ignora y manda el período de los botones de
   // siempre — así en celular esto nunca cambia nada.
   const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
+  // auth_user_id → nombre, para que el CSV de Movimientos pueda decir
+  // quién cargó cada uno (movimientos_financieros.registrado_por ya
+  // guarda ese id — ver migración 017 — nunca se había resuelto a nombre).
+  const [nombresUsuarios, setNombresUsuarios] = useState({});
 
   const [vistaForm, setVistaForm] = useState(false);
   const [tipoNuevo, setTipoNuevo] = useState('egreso');
@@ -151,6 +179,25 @@ export default function Finanzas() {
     cargarPendientes();
     cargarProyectado();
   }, [negocio, tickCaja, tickConversaciones, tickProductos, tickMovimientos]);
+
+  useEffect(() => {
+    if (!negocio) return;
+    supabase
+      .from('usuarios')
+      .select('auth_user_id, nombre')
+      .eq('negocio_id', negocio.id)
+      .then(({ data }) => {
+        const mapa = {};
+        for (const u of data || []) mapa[u.auth_user_id] = u.nombre;
+        setNombresUsuarios(mapa);
+      });
+  }, [negocio]);
+
+  function nombreDeUsuario(authUserId) {
+    if (!authUserId) return 'Sin registrar';
+    if (authUserId === negocio.auth_user_id) return 'Vos';
+    return nombresUsuarios[authUserId] || 'Ex-empleado';
+  }
 
   async function cargarMovimientos() {
     setCargando(true);
@@ -433,21 +480,81 @@ export default function Finanzas() {
 
   // Ingresos/egresos por día del período — solo tiene sentido con más
   // de un día a la vista (no con "Hoy"). Solo se muestra en escritorio.
+  // Completa TODOS los días del rango, aunque no tengan movimientos
+  // (quedan en cero) — si no, un día sin ventas desaparecía del gráfico
+  // y la semana se veía salteada en vez de completa.
   const tendenciaDiaria = useMemo(() => {
     if (periodo === 'hoy' && !usaRangoCustom) return [];
+    const { desde, hasta } = rangoActivo();
+    const hastaFinal = hasta || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Asuncion' }).format(new Date());
+
     const mapa = {};
     for (const m of movimientos) {
-      if (!mapa[m.fecha]) mapa[m.fecha] = { fecha: m.fecha, ingresos: 0, egresos: 0 };
+      if (!mapa[m.fecha]) mapa[m.fecha] = { ingresos: 0, egresos: 0, cantidad: 0 };
       if (m.tipo === 'ingreso') mapa[m.fecha].ingresos += Number(m.monto);
       else mapa[m.fecha].egresos += Number(m.monto);
+      mapa[m.fecha].cantidad += 1;
     }
-    return Object.values(mapa).sort((a, b) => a.fecha.localeCompare(b.fecha));
-  }, [movimientos, periodo, usaRangoCustom]);
 
+    const dias = [];
+    let cursor = desde;
+    let resguardo = 0;
+    while (cursor <= hastaFinal && resguardo < 370) {
+      dias.push({
+        fecha: cursor,
+        ingresos: mapa[cursor]?.ingresos || 0,
+        egresos: mapa[cursor]?.egresos || 0,
+        cantidad: mapa[cursor]?.cantidad || 0,
+      });
+      cursor = sumarDiasISO(cursor, 1);
+      resguardo++;
+    }
+    return dias;
+  }, [movimientos, periodo, usaRangoCustom, rangoCustom.desde, rangoCustom.hasta]);
+
+  // Escala simétrica sobre el NETO del día (ingreso - egreso), no sobre
+  // ingreso/egreso por separado — así una barra que sube es un día que
+  // dio ganancia y una que baja es un día que dio pérdida, se lee de
+  // un vistazo sin tener que comparar dos barras una al lado de la otra.
   const maxTendencia = useMemo(
-    () => Math.max(...tendenciaDiaria.map((d) => Math.max(d.ingresos, d.egresos)), 1),
+    () => Math.max(...tendenciaDiaria.map((d) => Math.abs(d.ingresos - d.egresos)), 1),
     [tendenciaDiaria]
   );
+
+  const netoTendencia = useMemo(
+    () => tendenciaDiaria.reduce((a, d) => a + (d.ingresos - d.egresos), 0),
+    [tendenciaDiaria]
+  );
+
+  // Día por día, ordenado cronológicamente (igual que se ve en el
+  // gráfico), con el día de la semana y la cantidad de movimientos —
+  // y una fila de total al final, para no tener que sumar a mano.
+  function exportarTendenciaCSV() {
+    const encabezados = ['Fecha', 'Día', 'Ingresos (Gs.)', 'Egresos (Gs.)', 'Neto (Gs.)', 'Cant. movimientos'];
+    const filas = tendenciaDiaria.map((d) => [
+      fechaDDMMYYYY(d.fecha),
+      nombreDiaISO(d.fecha),
+      d.ingresos,
+      d.egresos,
+      d.ingresos - d.egresos,
+      d.cantidad,
+    ]);
+
+    const totalIngresos = tendenciaDiaria.reduce((a, d) => a + d.ingresos, 0);
+    const totalEgresos = tendenciaDiaria.reduce((a, d) => a + d.egresos, 0);
+    const totalCantidad = tendenciaDiaria.reduce((a, d) => a + d.cantidad, 0);
+    filas.push(['', '', '', '', '', '']);
+    filas.push(['TOTAL', `${tendenciaDiaria.length} días`, totalIngresos, totalEgresos, totalIngresos - totalEgresos, totalCantidad]);
+
+    const contenido = '﻿' + [encabezados, ...filas].map((f) => f.join(';')).join('\r\n');
+    const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tendencia_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // Toca una categoría del desglose (solo escritorio, ver más abajo) y
   // filtra la tabla de Movimientos a esa categoría — tocar de nuevo la
@@ -537,18 +644,57 @@ export default function Finanzas() {
   }
 
   // CSV (se abre bien en Excel/Sheets) con los movimientos del período
-  // que se está viendo — mismo criterio de BOM+';' que ya usa la
-  // plantilla de importar productos, para que los acentos no se rompan.
+  // que se está viendo — respeta el filtro de categoría si hay uno
+  // activo. Mismo criterio de BOM+';' que ya usa la plantilla de
+  // importar productos, para que los acentos no se rompan.
+  //
+  // Ordenado cronológicamente (del más viejo al más nuevo, como una
+  // planilla contable de verdad) con Ingreso y Egreso en columnas
+  // separadas — así una suma de columna en Excel funciona directo, sin
+  // tener que filtrar por tipo primero. Cierra con una fila de totales.
   function exportarCSV() {
-    const encabezados = ['fecha', 'tipo', 'categoria', 'monto', 'notas', 'origen'];
-    const filas = movimientos.map((m) => [
-      m.fecha,
-      m.tipo,
+    const ordenados = [...movimientosFiltrados].sort(
+      (a, b) => a.fecha.localeCompare(b.fecha) || (a.creado_en || '').localeCompare(b.creado_en || '')
+    );
+
+    const encabezados = [
+      'Fecha',
+      'Día',
+      'Categoría',
+      'Ingreso (Gs.)',
+      'Egreso (Gs.)',
+      'Notas',
+      'Origen',
+      'Comprobante',
+      'Cargado por',
+    ];
+    const filas = ordenados.map((m) => [
+      fechaDDMMYYYY(m.fecha),
+      nombreDiaISO(m.fecha),
       etiquetaCategoria(m.categoria),
-      m.monto,
+      m.tipo === 'ingreso' ? m.monto : '',
+      m.tipo === 'egreso' ? m.monto : '',
       (m.notas || '').replace(/;/g, ','),
       m.origen === 'manual' ? 'Cargado a mano' : 'Automático',
+      m.comprobante_url ? 'Sí' : 'No',
+      nombreDeUsuario(m.registrado_por),
     ]);
+
+    const totalIngresos = ordenados.filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0);
+    const totalEgresos = ordenados.filter((m) => m.tipo === 'egreso').reduce((a, m) => a + Number(m.monto), 0);
+    filas.push(['', '', '', '', '', '', '', '', '']);
+    filas.push([
+      'TOTAL',
+      `${ordenados.length} movimientos`,
+      '',
+      totalIngresos,
+      totalEgresos,
+      '',
+      '',
+      '',
+      '',
+    ]);
+
     const contenido = '﻿' + [encabezados, ...filas].map((f) => f.join(';')).join('\r\n');
     const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -728,35 +874,87 @@ export default function Finanzas() {
       </div>
 
       {/* ---- Tendencia del período (solo escritorio, ancho completo):
-           antes solo se veía el total, no cómo vino cada día. ---- */}
+           una barra por día = el NETO de ese día (verde arriba de la
+           línea = ganó, rojo abajo = perdió) — de un vistazo se ve si
+           el período viene mejorando o empeorando, no solo el total. ---- */}
       {esEscritorio && tendenciaDiaria.length > 1 && (
         <div className="rounded-2xl bg-surface p-4 shadow-card">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Tendencia del período</p>
-          <div className="mt-3 flex h-28 items-end gap-1.5">
-            {tendenciaDiaria.map((d) => (
-              <div key={d.fecha} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                <div className="flex h-full w-full items-end justify-center gap-0.5">
-                  <div
-                    className="w-1/2 rounded-t bg-accent"
-                    style={{ height: `${Math.max((d.ingresos / maxTendencia) * 100, d.ingresos > 0 ? 3 : 0)}%` }}
-                    title={`Ingresos ${d.fecha}: Gs. ${d.ingresos.toLocaleString('es-PY')}`}
-                  />
-                  <div
-                    className="w-1/2 rounded-t bg-danger"
-                    style={{ height: `${Math.max((d.egresos / maxTendencia) * 100, d.egresos > 0 ? 3 : 0)}%` }}
-                    title={`Egresos ${d.fecha}: Gs. ${d.egresos.toLocaleString('es-PY')}`}
-                  />
-                </div>
-                <span className="text-[9px] text-muted">{d.fecha.slice(8, 10)}</span>
-              </div>
-            ))}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Tendencia del período</p>
+              <p className="mt-0.5 text-sm">
+                <span className={netoTendencia >= 0 ? 'text-accent' : 'text-danger'}>
+                  Neto {formatoGsCompacto(netoTendencia)}
+                </span>
+                {anterior &&
+                  (() => {
+                    const d = calcularDelta(netoTendencia, anterior.neto);
+                    return d ? (
+                      <span className={`ml-1.5 text-xs ${d.positivo ? 'text-accent' : 'text-danger'}`}>· {d.texto}</span>
+                    ) : null;
+                  })()}
+              </p>
+            </div>
+            <button
+              onClick={exportarTendenciaCSV}
+              className="flex shrink-0 items-center gap-1 text-xs font-medium text-accent"
+            >
+              <Download size={12} /> Descargar CSV
+            </button>
           </div>
+
+          <div className="mt-4 flex h-48 gap-0.5">
+            {tendenciaDiaria.map((d) => {
+              const neto = d.ingresos - d.egresos;
+              const pct = Math.min((Math.abs(neto) / maxTendencia) * 100, 100);
+              const mostrarValor = tendenciaDiaria.length <= 14;
+              return (
+                <div key={d.fecha} className="flex flex-1 flex-col items-center">
+                  <div className="flex h-1/2 w-full flex-col items-center justify-end">
+                    {neto >= 0 && (
+                      <>
+                        {mostrarValor && neto > 0 && (
+                          <span className="mb-0.5 whitespace-nowrap text-[10px] font-medium text-accent">
+                            {formatoGsCompacto(neto)}
+                          </span>
+                        )}
+                        <div
+                          className="w-4/5 rounded-t bg-accent"
+                          style={{ height: `${Math.max(pct, neto > 0 ? 4 : 0)}%` }}
+                          title={`${d.fecha}: neto ${neto.toLocaleString('es-PY')} (ingresos ${d.ingresos.toLocaleString('es-PY')}, egresos ${d.egresos.toLocaleString('es-PY')})`}
+                        />
+                      </>
+                    )}
+                  </div>
+                  <div className="h-px w-full bg-line" />
+                  <div className="flex h-1/2 w-full flex-col items-center">
+                    {neto < 0 && (
+                      <>
+                        <div
+                          className="w-4/5 rounded-b bg-danger"
+                          style={{ height: `${Math.max(pct, 4)}%` }}
+                          title={`${d.fecha}: neto ${neto.toLocaleString('es-PY')} (ingresos ${d.ingresos.toLocaleString('es-PY')}, egresos ${d.egresos.toLocaleString('es-PY')})`}
+                        />
+                        {mostrarValor && (
+                          <span className="mt-0.5 whitespace-nowrap text-[10px] font-medium text-danger">
+                            {formatoGsCompacto(neto)}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <span className="mt-1.5 text-[10px] text-muted">{d.fecha.slice(8, 10)}</span>
+                </div>
+              );
+            })}
+          </div>
+
           <div className="mt-2 flex items-center gap-3 text-[10px] text-muted">
             <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-accent" /> Ingresos
+              <span className="h-2 w-2 rounded-full bg-accent" /> Día con ganancia
             </span>
             <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-danger" /> Egresos
+              <span className="h-2 w-2 rounded-full bg-danger" /> Día con pérdida
             </span>
           </div>
         </div>
