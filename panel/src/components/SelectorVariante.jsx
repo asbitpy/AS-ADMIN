@@ -1,10 +1,13 @@
-export default function SelectorVariante({ producto, onElegir, onCerrar }) {
+export default function SelectorVariante({ producto, esEscritorio, onElegir, onCerrar }) {
   const variantes = (producto.variantes_producto || []).filter((v) => v.activo && v.stock > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={onCerrar}>
+    <div
+      className={`fixed inset-0 z-50 flex bg-black/60 ${esEscritorio ? 'items-center justify-center' : 'items-end'}`}
+      onClick={onCerrar}
+    >
       <div
-        className="mx-auto w-full max-w-md rounded-t-2xl bg-surface p-4 pb-8"
+        className={`w-full max-w-md bg-surface p-4 pb-8 ${esEscritorio ? 'mx-auto rounded-2xl' : 'mx-auto rounded-t-2xl'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <p className="mb-3 text-sm font-medium text-ink">{producto.nombre} — elegí la variante</p>

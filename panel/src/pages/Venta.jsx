@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ShoppingCart, Check, X, Paperclip } from 'lucide-react';
+import { Search, ShoppingCart, Check, X, Paperclip, Flame } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
@@ -7,6 +7,7 @@ import { subirComprobante } from '../lib/storage';
 import CarritoItem from '../components/CarritoItem';
 import SelectorVariante from '../components/SelectorVariante';
 import CajaBar from '../components/CajaBar';
+import { useEsEscritorio } from '../hooks/useEsEscritorio';
 
 const METODOS = [
   { id: 'efectivo', label: 'Efectivo' },
@@ -17,6 +18,7 @@ const METODOS = [
 
 export default function Venta() {
   const { negocio } = useAuth();
+  const { esEscritorio } = useEsEscritorio();
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
@@ -24,6 +26,14 @@ export default function Venta() {
   const [cajaSesionId, setCajaSesionId] = useState(null);
   const [productoParaVariante, setProductoParaVariante] = useState(null);
   const [telefonoCliente, setTelefonoCliente] = useState('');
+  // Nombre real del cliente — antes un cliente nuevo se creaba siempre
+  // como "Sin nombre" y había que ir a Clientes a completarlo a mano.
+  const [nombreCliente, setNombreCliente] = useState('');
+  // Solo escritorio: grilla de "más vendidos" para tocar sin escribir
+  // (útil en gastronomía/servicios, que muchas veces no tienen código de
+  // barras) y calculadora de vuelto — ninguna de las dos existía antes.
+  const [idsMasVendidos, setIdsMasVendidos] = useState([]);
+  const [montoRecibido, setMontoRecibido] = useState('');
   // Un solo pago es el 90% de los casos: acá vive siempre como una lista,
   // pero mientras tenga un solo elemento el monto ni se muestra — se
   // asume el total completo, sin pedirle nada extra al cajero. Recién al
@@ -60,6 +70,34 @@ export default function Venta() {
     cargarProductos();
   }, [negocio, tickProductos, tickVariantes]);
 
+  useEffect(() => {
+    if (!negocio || !esEscritorio) return;
+    cargarMasVendidos();
+  }, [negocio, esEscritorio]);
+
+  async function cargarMasVendidos() {
+    const { data: ventas } = await supabase
+      .from('ventas')
+      .select('id')
+      .eq('negocio_id', negocio.id)
+      .eq('estado', 'completada')
+      .limit(500);
+    const ids = (ventas || []).map((v) => v.id);
+    if (!ids.length) {
+      setIdsMasVendidos([]);
+      return;
+    }
+    const { data: items } = await supabase.from('venta_items').select('producto_id, cantidad').in('venta_id', ids);
+    const mapa = {};
+    for (const it of items || []) mapa[it.producto_id] = (mapa[it.producto_id] || 0) + it.cantidad;
+    setIdsMasVendidos(
+      Object.entries(mapa)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 9)
+        .map(([id]) => id)
+    );
+  }
+
   // El campo de búsqueda arranca con el foco: el lector de código de
   // barras es, para el sistema, un teclado escribiendo muy rápido — si
   // el foco no está acá, escanear no hace nada.
@@ -75,6 +113,11 @@ export default function Venta() {
       .eq('activo', true);
     setProductos(data || []);
   }
+
+  const masVendidos = useMemo(
+    () => idsMasVendidos.map((id) => productos.find((p) => p.id === id)).filter(Boolean),
+    [idsMasVendidos, productos]
+  );
 
   const resultados = useMemo(() => {
     if (!busqueda.trim()) return [];
@@ -154,6 +197,12 @@ export default function Venta() {
   const sumaPagos = pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
   const diferenciaPagos = subtotal - sumaPagos; // > 0: falta cobrar · < 0: se pasó · 0: coincide
 
+  // Vuelto: cuánto entrega el cajero menos el total — solo tiene
+  // sentido en efectivo y con un solo método (si se divide, cada monto
+  // ya es exacto por definición).
+  const pagaEnEfectivo = !dividido && pagos[0].metodo === 'efectivo';
+  const vuelto = pagaEnEfectivo && montoRecibido !== '' ? Number(montoRecibido) - subtotal : null;
+
   function cambiarMetodoPago(id, metodo) {
     setPagos((prev) => prev.map((p) => (p.id === id ? { ...p, metodo } : p)));
   }
@@ -181,18 +230,27 @@ export default function Venta() {
   async function resolverCliente() {
     const telefono = telefonoCliente.trim();
     if (!telefono) return null;
+    const nombre = nombreCliente.trim();
 
     const { data: existente } = await supabase
       .from('clientes')
-      .select('id')
+      .select('id, nombre')
       .eq('negocio_id', negocio.id)
       .eq('telefono', telefono)
       .maybeSingle();
-    if (existente) return existente.id;
+
+    if (existente) {
+      // Nunca pisa un nombre real que ya tenía cargado — solo completa
+      // el placeholder si el cajero ahora sí lo escribió.
+      if (nombre && (!existente.nombre || existente.nombre === 'Sin nombre')) {
+        await supabase.from('clientes').update({ nombre }).eq('id', existente.id);
+      }
+      return existente.id;
+    }
 
     const { data: nuevo } = await supabase
       .from('clientes')
-      .insert({ negocio_id: negocio.id, telefono, nombre: 'Sin nombre' })
+      .insert({ negocio_id: negocio.id, telefono, nombre: nombre || 'Sin nombre' })
       .select('id')
       .single();
     return nuevo?.id || null;
@@ -269,8 +327,10 @@ export default function Venta() {
       setAvisoComprobante(avisoComp);
       setCarrito([]);
       setTelefonoCliente('');
+      setNombreCliente('');
       setPagos([{ id: idPagoRef.current++, metodo: 'efectivo', monto: '' }]);
       setComprobante(null);
+      setMontoRecibido('');
       cargarProductos(); // refresca stock mostrado
     } catch (err) {
       console.error(err);
@@ -311,6 +371,7 @@ export default function Venta() {
         setCarrito([]);
         setBusqueda('');
         setComprobante(null);
+        setMontoRecibido('');
         searchRef.current?.focus();
         return;
       }
@@ -326,8 +387,6 @@ export default function Venta() {
         return;
       }
 
-      if (document.activeElement === telefonoRef.current) return; // no interferir mientras escribe el teléfono
-
       if (document.activeElement === searchRef.current) {
         if (e.key === 'ArrowDown' && resultados.length > 0) {
           e.preventDefault();
@@ -342,8 +401,17 @@ export default function Venta() {
         return;
       }
 
-      // Nada tiene el foco (se hizo clic en otro lado): cualquier tecla
-      // imprimible retoma la búsqueda, como si nunca la hubiera perdido.
+      // No interferir mientras se escribe en CUALQUIER otro campo — no
+      // solo el teléfono (como era antes). Cuando se agregó dividir pago
+      // y, después, el monto recibido para el vuelto, quedaron pisados
+      // por esta regla: cada tecla que tocaba ahí devolvía el foco a la
+      // búsqueda de golpe, y no dejaba escribir el monto.
+      const activo = document.activeElement;
+      if (activo && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activo.tagName)) return;
+
+      // Nada tiene el foco (se hizo clic en otro lado, ej. un botón):
+      // cualquier tecla imprimible retoma la búsqueda, como si nunca la
+      // hubiera perdido.
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         searchRef.current?.focus();
       }
@@ -385,6 +453,15 @@ export default function Venta() {
 
       <CajaBar negocioId={negocio.id} onSesionActualizada={(s) => setCajaSesionId(s?.id || null)} />
 
+      {/* Desde acá, en escritorio se arma en 2 columnas fijas (búsqueda a
+          la izquierda, carrito a la derecha, sin que una empuje a la
+          otra) — en celular esto no hace nada (el padre no es grid), así
+          que el orden y la pinta quedan intactos. */}
+      <div
+        className={esEscritorio ? 'grid items-start gap-6' : 'space-y-4'}
+        style={esEscritorio ? { gridTemplateColumns: '1fr 400px' } : undefined}
+      >
+      <div className="space-y-3">
       <div className="relative">
         <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
         <input
@@ -414,6 +491,32 @@ export default function Venta() {
         </div>
       )}
 
+      {/* Grilla de "más vendidos": para tocar sin escribir — útil en
+          gastronomía o servicios donde no todo tiene código de barras.
+          Solo escritorio, y solo cuando no hay una búsqueda escrita
+          (si no, competiría visualmente con los resultados de arriba). */}
+      {esEscritorio && !busqueda && masVendidos.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            <Flame size={12} /> Más vendidos
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {masVendidos.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onSeleccionarResultado(p)}
+                className="rounded-xl bg-surface p-3 text-left shadow-card hover:bg-surface2"
+              >
+                <p className="truncate text-sm text-ink">{p.nombre}</p>
+                <p className="font-mono text-xs text-muted">Gs. {Number(p.precio).toLocaleString('es-PY')}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      </div>
+
+      <div className="space-y-3">
       {carrito.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-2xl bg-surface py-10 text-center shadow-card">
           <ShoppingCart size={24} className="text-muted" />
@@ -443,6 +546,15 @@ export default function Venta() {
             className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
 
+          {esEscritorio && telefonoCliente.trim() && (
+            <input
+              placeholder="Nombre del cliente (opcional) — queda guardado en Clientes"
+              value={nombreCliente}
+              onChange={(e) => setNombreCliente(e.target.value)}
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+            />
+          )}
+
           {!dividido ? (
             <>
               <div className="flex gap-2">
@@ -458,6 +570,28 @@ export default function Venta() {
                   </button>
                 ))}
               </div>
+
+              {esEscritorio && pagaEnEfectivo && (
+                <div className="flex items-center gap-2 rounded-xl bg-surface p-3 shadow-card">
+                  <input
+                    type="number"
+                    placeholder="Recibió Gs."
+                    value={montoRecibido}
+                    onChange={(e) => setMontoRecibido(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
+                    className="w-32 rounded-lg border border-line bg-base px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+                  />
+                  <span className="text-xs text-muted">Vuelto</span>
+                  <span
+                    className={`font-mono text-sm font-medium ${
+                      vuelto === null ? 'text-muted' : vuelto < 0 ? 'text-danger' : 'text-accent'
+                    }`}
+                  >
+                    {vuelto === null ? '—' : `Gs. ${vuelto.toLocaleString('es-PY')}`}
+                  </span>
+                </div>
+              )}
+
               {carrito.length > 0 && (
                 <button type="button" onClick={agregarMetodoPago} className="text-xs font-medium text-accent">
                   + Dividir el pago entre varios métodos
@@ -563,9 +697,12 @@ export default function Venta() {
           <p className="text-center text-[11px] text-muted">F2 cobrar · F8 vaciar carrito · Esc limpiar búsqueda</p>
         </>
       )}
+      </div>
+      </div>
       {productoParaVariante && (
         <SelectorVariante
           producto={productoParaVariante}
+          esEscritorio={esEscritorio}
           onElegir={(variante) => agregarAlCarrito(productoParaVariante, variante)}
           onCerrar={() => {
             setProductoParaVariante(null);
