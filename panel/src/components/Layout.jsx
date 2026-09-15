@@ -13,6 +13,7 @@ import {
   Wallet,
   Truck,
   ClipboardList,
+  MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
@@ -82,11 +83,13 @@ export default function Layout() {
     { id: 'administrar', titulo: 'Administrar' },
   ];
 
-  // Proveedores y Compras son pantallas nuevas, solo de escritorio (ver
-  // feedback-asadmin-movil-congelado): a propósito NO se agregan al
-  // array 'tabs' de arriba, que también alimenta la navegación de
-  // celular — viven solo acá, en lo que se pinta dentro de <aside>.
+  // Proveedores, Compras y Conversaciones son pantallas nuevas, solo de
+  // escritorio (ver feedback-asadmin-movil-congelado): a propósito NO se
+  // agregan al array 'tabs' de arriba, que también alimenta la
+  // navegación de celular — viven solo acá, en lo que se pinta dentro
+  // de <aside>.
   const enlacesSoloEscritorio = {
+    atender: [{ to: '/conversaciones', label: 'Conversaciones', icon: MessageCircle }],
     vender:
       tieneRetail && puedeConfigurar
         ? [

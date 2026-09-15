@@ -14,6 +14,7 @@ import Finanzas from './pages/Finanzas';
 import Configuracion from './pages/Configuracion';
 import Proveedores from './pages/Proveedores';
 import Compras from './pages/Compras';
+import Conversaciones from './pages/Conversaciones';
 import { useEsEscritorio } from './hooks/useEsEscritorio';
 
 export default function App() {
@@ -63,6 +64,12 @@ export default function App() {
         {tieneRetail && <Route path="/productos" element={<Productos />} />}
         {/* Clientes es del núcleo común: sirve tanto a servicio como a retail */}
         <Route path="/clientes" element={<Clientes />} />
+        {/* Conversaciones: pantalla nueva, solo escritorio (ver
+            feedback-asadmin-movil-congelado). Sin restricción de rol ni
+            de módulo, igual que Clientes — el bot de WhatsApp corre para
+            cualquier negocio y cualquiera del equipo puede necesitar
+            revisar una conversación derivada. */}
+        {esEscritorio && <Route path="/conversaciones" element={<Conversaciones />} />}
         {puedeConfigurar && <Route path="/finanzas" element={<Finanzas />} />}
         {esDueno && <Route path="/equipo" element={<Equipo />} />}
         {puedeConfigurar && <Route path="/configuracion" element={<Configuracion />} />}

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { UserPlus, Crown, X, ChevronRight, ChevronLeft, Plus, Trash2, Wallet, TrendingUp } from 'lucide-react';
+import { UserPlus, Crown, X, ChevronRight, ChevronLeft, Plus, Trash2, Wallet, TrendingUp, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
+import MetricPill from '../components/MetricPill';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', descripcion: 'Todo lo operativo. No da de alta empleados.' },
@@ -36,6 +37,16 @@ function fechaTexto(fecha) {
     month: '2-digit',
     year: 'numeric',
   }).format(new Date(fecha));
+}
+
+// Mismo criterio que Productos: a partir del millón se abrevia para que
+// entre en una píldora de métrica sin cortarse.
+function formatoGsCompacto(monto) {
+  const n = Number(monto);
+  if (n >= 1_000_000) {
+    return `Gs. ${(n / 1_000_000).toLocaleString('es-PY', { maximumFractionDigits: 1 })} M`;
+  }
+  return `Gs. ${n.toLocaleString('es-PY')}`;
 }
 
 export default function Equipo() {
@@ -87,8 +98,12 @@ export default function Equipo() {
     ]);
 
     const mapa = new Map();
+    // Una venta o caja sin usuario_id es de antes de que fn_crear_venta
+    // empezara a grabarlo, o se hizo sin cajero asignado — se cuenta
+    // como del dueño, no como "Sin asignar" (lo pidió Arturo: esa plata
+    // la vendió alguien, y por descarte solo puede ser él).
     function fila(idCrudo) {
-      const id = idCrudo || 'sin_asignar';
+      const id = idCrudo || negocio.auth_user_id;
       if (!mapa.has(id)) {
         let nombre = 'Sin asignar';
         if (id === negocio.auth_user_id) nombre = 'Vos';
@@ -167,7 +182,10 @@ export default function Equipo() {
     cargar();
   }
 
-  if (empleadoAbierto) {
+  // En escritorio la ficha va como panel lateral (más abajo, dentro del
+  // grid de dos columnas) en vez de tapar toda la pantalla — en celular
+  // sigue siendo una pantalla completa, sin cambios.
+  if (empleadoAbierto && !esEscritorio) {
     return (
       <FichaEmpleado
         empleado={empleadoAbierto}
@@ -275,19 +293,36 @@ export default function Equipo() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 rounded-xl bg-surface p-3 shadow-card">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-soft">
-          <Crown size={16} className="text-amber" />
-        </span>
-        <div>
-          <p className="text-sm font-medium text-ink">Vos</p>
-          <p className="text-xs text-muted">Dueño — acceso total, no se puede editar acá</p>
+      {esEscritorio && !cargando && (
+        <div className="flex gap-3">
+          <MetricPill label="Personas" value={usuarios.length + 1} />
+          <MetricPill label="Activos" value={usuarios.filter((u) => u.activo).length + 1} tone="accent" />
+          {tieneRetail && (
+            <MetricPill
+              label="Vendido (equipo)"
+              value={formatoGsCompacto(actividad.reduce((acc, a) => acc + a.totalVendido, 0))}
+              tone="accent"
+              compact
+            />
+          )}
         </div>
-      </div>
+      )}
+
+      {!esEscritorio && (
+        <div className="flex items-center gap-3 rounded-xl bg-surface p-3 shadow-card">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-soft">
+            <Crown size={16} className="text-amber" />
+          </span>
+          <div>
+            <p className="text-sm font-medium text-ink">Vos</p>
+            <p className="text-xs text-muted">Dueño — acceso total, no se puede editar acá</p>
+          </div>
+        </div>
+      )}
 
       {cargando && <p className="pt-4 text-center text-sm text-muted">Cargando…</p>}
 
-      {!cargando && usuarios.length === 0 && (
+      {!cargando && usuarios.length === 0 && !esEscritorio && (
         <p className="pt-4 text-center text-sm text-muted">
           Todavía no agregaste a nadie más. Con "Agregar" sumás la primera persona de tu equipo.
         </p>
@@ -330,88 +365,93 @@ export default function Equipo() {
         </div>
       )}
 
-      {!cargando && usuarios.length > 0 && esEscritorio && (
-        <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs font-medium uppercase tracking-wide text-muted">
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Rol</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3 text-right">Acción</th>
-                <th className="px-4 py-3 text-right">Sueldo y horario</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {usuarios.map((u) => (
-                <tr key={u.id} className={!u.activo ? 'opacity-50' : ''}>
-                  <td className="px-4 py-3 font-medium text-ink">{u.nombre}</td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={u.rol}
-                      onChange={(e) => cambiarRol(u.id, e.target.value)}
-                      disabled={!u.activo}
-                      className="rounded-lg border border-line bg-base px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-accent disabled:opacity-60"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3 text-muted">{u.activo ? 'Activo' : 'Inactivo'}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => toggleActivo(u)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-                        u.activo ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-accent'
-                      }`}
-                    >
-                      {u.activo ? 'Dar de baja' : 'Reactivar'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => setEmpleadoAbierto(u)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-accent"
-                    >
-                      Ver <ChevronRight size={14} />
-                    </button>
-                  </td>
+      {!cargando && esEscritorio && (
+        <div className="grid items-start gap-4" style={{ gridTemplateColumns: '1fr 480px' }}>
+          <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-xs font-medium uppercase tracking-wide text-muted">
+                  <th className="px-4 py-3">Nombre</th>
+                  <th className="px-4 py-3">Rol</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right">Acción</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-line">
+                <tr>
+                  <td className="px-4 py-3 font-medium text-ink">
+                    <span className="flex items-center gap-1.5">
+                      <Crown size={14} className="text-amber" /> Vos
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-muted">Dueño</td>
+                  <td className="px-4 py-3 text-muted">Activo</td>
+                  <td className="px-4 py-3 text-right text-xs text-muted">Acceso total</td>
+                </tr>
+                {usuarios.map((u) => (
+                  <tr
+                    key={u.id}
+                    onClick={() => setEmpleadoAbierto(u)}
+                    className={`cursor-pointer hover:bg-surface2 ${!u.activo ? 'opacity-50' : ''} ${
+                      empleadoAbierto?.id === u.id ? 'bg-accent-soft' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-medium text-ink">
+                      <span className="flex items-center gap-1.5">
+                        {u.nombre}
+                        {empleadoAbierto?.id === u.id && <ChevronRight size={14} className="text-accent" />}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={u.rol}
+                        onChange={(e) => cambiarRol(u.id, e.target.value)}
+                        disabled={!u.activo}
+                        className="rounded-lg border border-line bg-base px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-accent disabled:opacity-60"
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-muted">{u.activo ? 'Activo' : 'Inactivo'}</td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => toggleActivo(u)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                          u.activo ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-accent'
+                        }`}
+                      >
+                        {u.activo ? 'Dar de baja' : 'Reactivar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {usuarios.length === 0 && (
+              <p className="p-4 text-center text-xs text-muted">
+                Todavía no agregaste a nadie más. Con "Agregar" sumás la primera persona de tu equipo.
+              </p>
+            )}
+          </div>
 
-      {esEscritorio && tieneRetail && actividad.length > 0 && (
-        <div>
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-            <TrendingUp size={13} /> Actividad del equipo
-          </p>
-          <p className="mt-0.5 text-xs text-muted">Días de caja abierta y ventas de cada persona, todos juntos.</p>
-          <div className="mt-2 space-y-1.5">
-            {actividad.map((a) => (
-              <div key={a.id} className="flex items-center justify-between rounded-xl bg-surface p-3 shadow-card">
-                <p className="truncate text-sm font-medium text-ink">{a.nombre}</p>
-                <div className="flex shrink-0 items-center gap-4 text-right">
-                  <div>
-                    <p className="text-sm text-ink">{a.diasTrabajados}</p>
-                    <p className="text-[10px] text-muted">días</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-ink">{a.ventasCount}</p>
-                    <p className="text-[10px] text-muted">ventas</p>
-                  </div>
-                  <div className="w-28">
-                    <p className="font-mono text-sm text-accent">Gs. {a.totalVendido.toLocaleString('es-PY')}</p>
-                    <p className="text-[10px] text-muted">vendido</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {empleadoAbierto ? (
+              <FichaEmpleado
+                panel
+                empleado={empleadoAbierto}
+                onVolver={() => setEmpleadoAbierto(null)}
+                onActualizado={(actualizado) => {
+                  setEmpleadoAbierto(actualizado);
+                  cargar();
+                }}
+              />
+            ) : (
+              <ActividadRanking actividad={actividad} tieneRetail={tieneRetail} />
+            )}
           </div>
         </div>
       )}
@@ -428,16 +468,84 @@ const ETIQUETAS_ROL = {
   profesional: 'Profesional',
 };
 
+// Contenido por defecto del panel lateral de escritorio, cuando no hay
+// nadie seleccionado en la tabla: reemplaza a la vieja lista apretada
+// de "Actividad del equipo" por un ranking con barra, más fácil de leer
+// de un vistazo (quién vendió más, sin tener que comparar números).
+function ActividadRanking({ actividad, tieneRetail }) {
+  if (!tieneRetail) {
+    return (
+      <div className="rounded-2xl bg-surface p-6 text-center shadow-card">
+        <Users size={20} className="mx-auto text-muted" />
+        <p className="mt-2 text-sm text-muted">Hacé clic en una persona para ver o editar su sueldo y horario.</p>
+      </div>
+    );
+  }
+
+  if (actividad.length === 0) {
+    return (
+      <div className="rounded-2xl bg-surface p-6 text-center shadow-card">
+        <TrendingUp size={20} className="mx-auto text-muted" />
+        <p className="mt-2 text-sm text-muted">Todavía no hay ventas ni cajas registradas para mostrar actividad.</p>
+      </div>
+    );
+  }
+
+  const max = Math.max(...actividad.map((a) => a.totalVendido), 1);
+
+  return (
+    <div className="rounded-2xl bg-surface p-4 shadow-card">
+      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+        <TrendingUp size={13} /> Actividad del equipo
+      </p>
+      <p className="mt-0.5 text-xs text-muted">Quién vendió más y cuántos días trabajó, todos juntos.</p>
+
+      <div className="mt-3 space-y-3">
+        {actividad.map((a, i) => (
+          <div key={a.id}>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex min-w-0 items-center gap-1.5 truncate font-medium text-ink">
+                {i === 0 && a.totalVendido > 0 && <Crown size={13} className="shrink-0 text-amber" />}
+                <span className="truncate">{a.nombre}</span>
+              </span>
+              <span className="shrink-0 font-mono text-xs text-accent">Gs. {a.totalVendido.toLocaleString('es-PY')}</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface2">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${(a.totalVendido / max) * 100}%` }} />
+            </div>
+            <p className="mt-0.5 text-[10px] text-muted">
+              {a.diasTrabajados} días · {a.ventasCount} ventas
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 border-t border-line pt-2 text-[11px] text-muted">
+        Hacé clic en una persona de la lista para ver su ficha, sueldo y horario.
+      </p>
+    </div>
+  );
+}
+
 // Sueldo y horario semanal de un empleado — lo pidió Arturo para que
 // la ficha quede completa. A propósito NO es el módulo de "Jornadas"
 // del documento de pantallas (grilla + fichaje + comisiones): esto es
 // más chico, un horario de referencia por persona, mismo formato que
 // ya usa HorariosAtencion.jsx para el negocio.
-function FichaEmpleado({ empleado, onVolver, onActualizado }) {
+function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
   const { negocio } = useAuth();
   const tieneRetail = (negocio?.modulos_activos || []).some((m) => m === 'pos' || m === 'inventario');
   const [sueldo, setSueldo] = useState(empleado.sueldo ?? '');
   const [horario, setHorario] = useState(empleado.horario || {});
+  // Datos de contacto/referencia — solo se editan desde el panel de
+  // escritorio (más abajo, gateado con `panel`), pero el estado vive acá
+  // igual para que el guardado sea uno solo. En celular no hay campos
+  // para tocarlos, así que viajan de vuelta sin cambios.
+  const [telefono, setTelefono] = useState(empleado.telefono || '');
+  const [email, setEmail] = useState(empleado.email || '');
+  const [documento, setDocumento] = useState(empleado.documento || '');
+  const [fechaIngreso, setFechaIngreso] = useState(empleado.fecha_ingreso || '');
+  const [notas, setNotas] = useState(empleado.notas || '');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
@@ -497,7 +605,15 @@ function FichaEmpleado({ empleado, onVolver, onActualizado }) {
     setGuardando(true);
     const { data, error: errUpdate } = await supabase
       .from('usuarios')
-      .update({ sueldo: sueldo === '' ? null : Number(sueldo), horario })
+      .update({
+        sueldo: sueldo === '' ? null : Number(sueldo),
+        horario,
+        telefono: telefono.trim() || null,
+        email: email.trim() || null,
+        documento: documento.trim() || null,
+        fecha_ingreso: fechaIngreso || null,
+        notas: notas.trim() || null,
+      })
       .eq('id', empleado.id)
       .select()
       .maybeSingle();
@@ -513,14 +629,83 @@ function FichaEmpleado({ empleado, onVolver, onActualizado }) {
 
   return (
     <div className="space-y-4">
-      <button onClick={onVolver} className="flex items-center gap-1 text-sm text-muted">
-        <ChevronLeft size={16} /> Volver a Equipo
-      </button>
+      {panel ? (
+        <div className="flex items-center justify-between rounded-2xl bg-surface p-5 shadow-card">
+          <div>
+            <p className="font-display text-2xl text-ink">{empleado.nombre}</p>
+            <p className="text-sm text-muted">{ETIQUETAS_ROL[empleado.rol] || empleado.rol}</p>
+          </div>
+          <button onClick={onVolver} className="shrink-0 text-muted">
+            <X size={20} />
+          </button>
+        </div>
+      ) : (
+        <>
+          <button onClick={onVolver} className="flex items-center gap-1 text-sm text-muted">
+            <ChevronLeft size={16} /> Volver a Equipo
+          </button>
 
-      <div>
-        <p className="font-display text-xl text-ink">{empleado.nombre}</p>
-        <p className="text-xs text-muted">{ETIQUETAS_ROL[empleado.rol] || empleado.rol}</p>
-      </div>
+          <div>
+            <p className="font-display text-xl text-ink">{empleado.nombre}</p>
+            <p className="text-xs text-muted">{ETIQUETAS_ROL[empleado.rol] || empleado.rol}</p>
+          </div>
+        </>
+      )}
+
+      {panel && (
+        <div className="rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Datos del empleado</p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted">Teléfono</label>
+              <input
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                placeholder="0981 234 567"
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="correo@ejemplo.com"
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted">Cédula (CI)</label>
+              <input
+                value={documento}
+                onChange={(e) => setDocumento(e.target.value)}
+                placeholder="1.234.567"
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted">Fecha de ingreso</label>
+              <input
+                type="date"
+                value={fechaIngreso}
+                onChange={(e) => setFechaIngreso(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="text-xs text-muted">Notas</label>
+            <textarea
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              rows={2}
+              placeholder="Observaciones, contacto de emergencia, etc."
+              className="mt-1 w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl bg-surface p-4 shadow-card">
         <label className="flex items-center gap-1.5 text-xs text-muted">
