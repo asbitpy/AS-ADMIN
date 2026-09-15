@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Receipt, Ban, Clock, Paperclip } from 'lucide-react';
+import { ChevronLeft, Receipt, Ban, Clock, Paperclip, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
 import { urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
+import { useEsEscritorio } from '../hooks/useEsEscritorio';
 
 // Mismo criterio que Productos.jsx: un monto de más de 7 cifras no entra
 // en un tercio de pantalla, así que se abrevia en millones.
@@ -33,6 +34,21 @@ const METODOS_LABEL = {
 
 const METODOS_PAGO = ['efectivo', 'transferencia', 'tarjeta', 'qr'];
 
+const CANAL_LABEL = {
+  local: 'Local',
+  ecommerce: 'Ecommerce',
+  whatsapp: 'WhatsApp',
+};
+
+function fechaDDMMYYYY(fechaISO) {
+  return new Intl.DateTimeFormat('es-PY', {
+    timeZone: 'America/Asuncion',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(fechaISO));
+}
+
 function fechaHoraTexto(fecha) {
   return new Intl.DateTimeFormat('es-PY', {
     timeZone: 'America/Asuncion',
@@ -57,9 +73,17 @@ function desdePeriodo(periodo) {
 
 export default function Ventas() {
   const { negocio } = useAuth();
+  const { esEscritorio } = useEsEscritorio();
   const [periodo, setPeriodo] = useState('hoy');
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(true);
+  // Filtros de escritorio (sección 6.5 del doc de pantallas: rango de
+  // fechas, método de pago, vendedor, canal) — en celular no existen,
+  // así que quedan siempre "todos" ahí y la lista nunca se filtra.
+  const [filtroMetodo, setFiltroMetodo] = useState('todos');
+  const [filtroCanal, setFiltroCanal] = useState('todos');
+  const [filtroVendedor, setFiltroVendedor] = useState('todos');
+  const [nombresUsuarios, setNombresUsuarios] = useState({});
   const [ventaAbierta, setVentaAbierta] = useState(null); // id de la venta con el detalle abierto
   const [detalle, setDetalle] = useState(null);
   const [anulando, setAnulando] = useState(false);
@@ -75,6 +99,25 @@ export default function Ventas() {
     if (!negocio) return;
     cargar();
   }, [negocio, periodo, tickVentas]);
+
+  useEffect(() => {
+    if (!negocio) return;
+    supabase
+      .from('usuarios')
+      .select('auth_user_id, nombre')
+      .eq('negocio_id', negocio.id)
+      .then(({ data }) => {
+        const mapa = {};
+        for (const u of data || []) mapa[u.auth_user_id] = u.nombre;
+        setNombresUsuarios(mapa);
+      });
+  }, [negocio]);
+
+  function nombreVendedor(authUserId) {
+    if (!authUserId) return 'Sin asignar';
+    if (authUserId === negocio.auth_user_id) return 'Vos';
+    return nombresUsuarios[authUserId] || 'Ex-empleado';
+  }
 
   async function cargar() {
     setCargando(true);
@@ -184,10 +227,69 @@ export default function Ventas() {
     cargar();
   }
 
-  const completadas = useMemo(() => ventas.filter((v) => v.estado === 'completada'), [ventas]);
   const reservadas = useMemo(() => ventas.filter((v) => v.estado === 'reservada'), [ventas]);
+
+  // Vendedores que aparecen en la lista actual, para llenar el filtro
+  // sin tener que consultar 'usuarios' de nuevo ni mostrar a alguien
+  // que nunca vendió nada en este período.
+  const vendedoresEnLista = useMemo(() => {
+    const ids = new Set(ventas.map((v) => v.usuario_id).filter(Boolean));
+    return Array.from(ids).map((id) => ({ id, nombre: nombreVendedor(id) }));
+  }, [ventas, nombresUsuarios, negocio?.auth_user_id]);
+
+  const ventasFiltradas = useMemo(() => {
+    return ventas.filter((v) => {
+      if (filtroMetodo !== 'todos' && v.metodo_pago !== filtroMetodo) return false;
+      if (filtroCanal !== 'todos' && v.canal !== filtroCanal) return false;
+      if (filtroVendedor !== 'todos' && v.usuario_id !== filtroVendedor) return false;
+      return true;
+    });
+  }, [ventas, filtroMetodo, filtroCanal, filtroVendedor]);
+
+  const completadas = useMemo(() => ventasFiltradas.filter((v) => v.estado === 'completada'), [ventasFiltradas]);
   const totalVendido = completadas.reduce((acc, v) => acc + Number(v.total), 0);
   const ticketPromedio = completadas.length ? Math.round(totalVendido / completadas.length) : 0;
+
+  // Mismo criterio que los CSV de Finanzas: ordenado cronológicamente,
+  // con Ingreso separado de Anulado, y quién vendió cada una.
+  function exportarVentasCSV() {
+    const ordenadas = [...ventasFiltradas].sort((a, b) => a.creado_en.localeCompare(b.creado_en));
+    const encabezados = [
+      'Fecha',
+      'Hora',
+      'Cliente',
+      'Canal',
+      'Método de pago',
+      'Estado',
+      'Total (Gs.)',
+      'Vendedor',
+    ];
+    const filas = ordenadas.map((v) => [
+      fechaDDMMYYYY(v.creado_en),
+      new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(v.creado_en)),
+      v.cliente?.nombre || 'Sin registrar',
+      CANAL_LABEL[v.canal] || v.canal,
+      v.metodo_pago ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago : 'Dividido',
+      v.estado === 'completada' ? 'Completada' : v.estado === 'reservada' ? 'Pendiente de retiro' : 'Anulada',
+      v.total,
+      nombreVendedor(v.usuario_id),
+    ]);
+
+    const totalGeneral = ordenadas
+      .filter((v) => v.estado === 'completada')
+      .reduce((a, v) => a + Number(v.total), 0);
+    filas.push(['', '', '', '', '', '', '', '']);
+    filas.push(['TOTAL', '', `${ordenadas.length} ventas`, '', '', '', totalGeneral, '']);
+
+    const contenido = '﻿' + [encabezados, ...filas].map((f) => f.join(';')).join('\r\n');
+    const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ventas_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (ventaAbierta) {
     return (
@@ -223,7 +325,7 @@ export default function Ventas() {
     <div className="space-y-4">
       <p className="font-display text-xl text-ink">Ventas</p>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1">
         {PERIODOS.map((p) => (
           <button
             key={p.id}
@@ -235,6 +337,55 @@ export default function Ventas() {
             {p.label}
           </button>
         ))}
+
+        {esEscritorio && (
+          <>
+            <select
+              value={filtroMetodo}
+              onChange={(e) => setFiltroMetodo(e.target.value)}
+              className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="todos">Todos los métodos</option>
+              {METODOS_PAGO.map((m) => (
+                <option key={m} value={m}>
+                  {METODOS_LABEL[m]}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filtroCanal}
+              onChange={(e) => setFiltroCanal(e.target.value)}
+              className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="todos">Todos los canales</option>
+              {Object.entries(CANAL_LABEL).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            {vendedoresEnLista.length > 0 && (
+              <select
+                value={filtroVendedor}
+                onChange={(e) => setFiltroVendedor(e.target.value)}
+                className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted outline-none focus:ring-2 focus:ring-accent"
+              >
+                <option value="todos">Todos los vendedores</option>
+                {vendedoresEnLista.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.nombre}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={exportarVentasCSV}
+              className="ml-auto flex items-center gap-1 text-xs font-medium text-accent"
+            >
+              <Download size={12} /> Exportar CSV
+            </button>
+          </>
+        )}
       </div>
 
       <div className="flex gap-3">
@@ -260,51 +411,118 @@ export default function Ventas() {
         </p>
       )}
 
-      <div className="space-y-2">
-        {ventas.map((v) => (
-          <button
-            key={v.id}
-            onClick={() => abrirDetalle(v)}
-            className={`flex w-full items-center justify-between rounded-xl bg-surface p-3 text-left shadow-card active:scale-[0.99] ${
-              v.estado === 'anulada' ? 'opacity-50' : ''
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <span
-                className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                  v.estado === 'reservada' ? 'bg-amber-soft' : 'bg-accent-soft'
-                }`}
-              >
-                {v.estado === 'anulada' ? (
-                  <Ban size={16} className="text-danger" />
-                ) : v.estado === 'reservada' ? (
-                  <Clock size={16} className="text-amber" />
-                ) : (
-                  <Receipt size={16} className="text-accent" />
-                )}
-              </span>
-              <div>
-                <p className="text-sm font-medium text-ink">
-                  {v.cliente?.nombre || 'Cliente sin registrar'}
-                  {v.estado === 'anulada' && <span className="ml-1.5 text-xs text-danger">· anulada</span>}
-                  {v.estado === 'reservada' && <span className="ml-1.5 text-xs text-amber">· pendiente de retiro</span>}
-                </p>
-                <p className="text-xs text-muted">
-                  {fechaHoraTexto(v.creado_en)} ·{' '}
-                  {v.estado === 'reservada'
-                    ? 'Pedido por WhatsApp'
-                    : v.metodo_pago
-                      ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago
-                      : 'Pago dividido'}
-                </p>
+      {!cargando && ventas.length > 0 && ventasFiltradas.length === 0 && (
+        <p className="pt-6 text-center text-sm text-muted">Ninguna venta con esos filtros.</p>
+      )}
+
+      {!esEscritorio && (
+        <div className="space-y-2">
+          {ventasFiltradas.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => abrirDetalle(v)}
+              className={`flex w-full items-center justify-between rounded-xl bg-surface p-3 text-left shadow-card active:scale-[0.99] ${
+                v.estado === 'anulada' ? 'opacity-50' : ''
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                    v.estado === 'reservada' ? 'bg-amber-soft' : 'bg-accent-soft'
+                  }`}
+                >
+                  {v.estado === 'anulada' ? (
+                    <Ban size={16} className="text-danger" />
+                  ) : v.estado === 'reservada' ? (
+                    <Clock size={16} className="text-amber" />
+                  ) : (
+                    <Receipt size={16} className="text-accent" />
+                  )}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    {v.cliente?.nombre || 'Cliente sin registrar'}
+                    {v.estado === 'anulada' && <span className="ml-1.5 text-xs text-danger">· anulada</span>}
+                    {v.estado === 'reservada' && <span className="ml-1.5 text-xs text-amber">· pendiente de retiro</span>}
+                  </p>
+                  <p className="text-xs text-muted">
+                    {fechaHoraTexto(v.creado_en)} ·{' '}
+                    {v.estado === 'reservada'
+                      ? 'Pedido por WhatsApp'
+                      : v.metodo_pago
+                        ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago
+                        : 'Pago dividido'}
+                  </p>
+                </div>
               </div>
-            </div>
-            <p className={`font-mono text-sm ${v.estado === 'anulada' ? 'text-muted line-through' : 'text-ink'}`}>
-              Gs. {Number(v.total).toLocaleString('es-PY')}
-            </p>
-          </button>
-        ))}
-      </div>
+              <p className={`font-mono text-sm ${v.estado === 'anulada' ? 'text-muted line-through' : 'text-ink'}`}>
+                Gs. {Number(v.total).toLocaleString('es-PY')}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {esEscritorio && ventasFiltradas.length > 0 && (
+        <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-line text-xs font-medium uppercase tracking-wide text-muted">
+                <th className="px-4 py-3">Fecha</th>
+                <th className="px-4 py-3">Cliente</th>
+                <th className="px-4 py-3">Canal</th>
+                <th className="px-4 py-3">Método</th>
+                <th className="px-4 py-3">Vendedor</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {ventasFiltradas.map((v) => (
+                <tr
+                  key={v.id}
+                  onClick={() => abrirDetalle(v)}
+                  className={`cursor-pointer hover:bg-surface2 ${v.estado === 'anulada' ? 'opacity-50' : ''}`}
+                >
+                  <td className="px-4 py-3 text-muted">{fechaHoraTexto(v.creado_en)}</td>
+                  <td className="px-4 py-3 text-ink">{v.cliente?.nombre || 'Sin registrar'}</td>
+                  <td className="px-4 py-3 text-muted">{CANAL_LABEL[v.canal] || v.canal}</td>
+                  <td className="px-4 py-3 text-muted">
+                    {v.estado === 'reservada'
+                      ? 'Pedido WhatsApp'
+                      : v.metodo_pago
+                        ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago
+                        : 'Dividido'}
+                  </td>
+                  <td className="px-4 py-3 text-muted">{nombreVendedor(v.usuario_id)}</td>
+                  <td className="px-4 py-3">
+                    {v.estado === 'anulada' ? (
+                      <span className="rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
+                        Anulada
+                      </span>
+                    ) : v.estado === 'reservada' ? (
+                      <span className="rounded-full bg-amber-soft px-2 py-0.5 text-xs font-medium text-amber">
+                        Pendiente
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+                        Completada
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    className={`px-4 py-3 text-right font-mono ${
+                      v.estado === 'anulada' ? 'text-muted line-through' : 'text-ink'
+                    }`}
+                  >
+                    Gs. {Number(v.total).toLocaleString('es-PY')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
