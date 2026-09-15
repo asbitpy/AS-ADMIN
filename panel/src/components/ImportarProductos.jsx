@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Upload, Download, X, AlertTriangle, Check } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Upload, Download, X, AlertTriangle, Check, Layers } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,6 +21,7 @@ const MAPA_ENCABEZADOS = {
   stock_minimo: 'stock_minimo',
   minimo: 'stock_minimo',
   categoria: 'categoria',
+  proveedor: 'proveedor',
   sku: 'sku',
   codigo: 'sku',
   marca: 'marca',
@@ -27,6 +29,17 @@ const MAPA_ENCABEZADOS = {
   codigo_barras: 'codigo_barras',
   barcode: 'codigo_barras',
   ean: 'codigo_barras',
+  // Variantes — cada fila con talle y/o color se agrupa con las demás
+  // filas del mismo "nombre" como variantes de un solo producto.
+  talle: 'talle',
+  variante_talle: 'talle',
+  atributo1: 'talle',
+  size: 'talle',
+  color: 'color',
+  variante_color: 'color',
+  atributo2: 'color',
+  precio_variante: 'precio_override',
+  precio_override: 'precio_override',
 };
 
 function normalizar(texto) {
@@ -94,12 +107,33 @@ function parseCSV(texto) {
   return filas;
 }
 
+/** .xlsx (o .xls) → mismo formato "array de filas" que parseCSV, así el
+ * resto del código no necesita saber de qué tipo de archivo vino. */
+function parseXLSX(arrayBuffer) {
+  const libro = XLSX.read(arrayBuffer, { type: 'array' });
+  const hoja = libro.Sheets[libro.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(hoja, { header: 1, raw: false, defval: '' });
+  return filas
+    .map((fila) => fila.map((c) => (c === null || c === undefined ? '' : String(c))))
+    .filter((fila) => fila.some((x) => x.trim() !== ''));
+}
+
 function descargarPlantilla() {
-  const encabezados = ['nombre', 'precio', 'costo', 'stock', 'stock_minimo', 'categoria', 'sku', 'codigo_barras', 'marca'];
-  const ejemplo = ['Proteína vainilla 1kg', '210000', '140000', '10', '3', 'Suplementos', 'PROT-VAI-1K', '7840001000011', ''];
+  const encabezados = [
+    'nombre', 'precio', 'costo', 'stock', 'stock_minimo', 'categoria', 'proveedor',
+    'sku', 'codigo_barras', 'marca', 'talle', 'color',
+  ];
+  const filas = [
+    ['Proteína vainilla 1kg', '210000', '140000', '10', '3', 'Suplementos', '', 'PROT-VAI-1K', '7840001000011', '', '', ''],
+    // Mismo "nombre" en más de una fila = variantes de un solo producto
+    // (el precio/costo/categoría se toman de la primera fila que los
+    // tenga; talle/color/stock son propios de cada fila).
+    ['Remera básica', '85000', '45000', '5', '2', 'Ropa', '', '', '', '', 'M', 'Blanco'],
+    ['Remera básica', '85000', '45000', '3', '2', 'Ropa', '', '', '', '', 'L', 'Blanco'],
+  ];
   // El BOM al principio es lo que hace que Excel abra bien las tildes
   // en vez de mostrar "Proteína" como "ProteÃna".
-  const contenido = '﻿' + [encabezados, ejemplo].map((f) => f.join(';')).join('\r\n');
+  const contenido = '﻿' + [encabezados, ...filas].map((f) => f.join(';')).join('\r\n');
   const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -112,8 +146,9 @@ function descargarPlantilla() {
 export default function ImportarProductos({ onCancelar, onImportado }) {
   const { negocio } = useAuth();
   const inputRef = useRef(null);
-  const [filas, setFilas] = useState(null); // filas ya validadas, listas para revisar
+  const [grupos, setGrupos] = useState(null); // productos ya agrupados, validados y cruzados contra lo existente
   const [nombreArchivo, setNombreArchivo] = useState('');
+  const [procesandoArchivo, setProcesandoArchivo] = useState(false);
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null);
@@ -127,124 +162,331 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
     setError(null);
     setResultado(null);
     setNombreArchivo(archivo.name);
+    setProcesandoArchivo(true);
 
-    const texto = await archivo.text();
-    const tabla = parseCSV(texto);
+    try {
+      const esExcel = /\.xlsx?$/i.test(archivo.name);
+      const tabla = esExcel ? parseXLSX(await archivo.arrayBuffer()) : parseCSV(await archivo.text());
 
-    if (tabla.length < 2) {
-      setError('El archivo no tiene filas de datos (solo encabezado, o está vacío).');
-      setFilas(null);
-      return;
-    }
+      if (tabla.length < 2) {
+        setError('El archivo no tiene filas de datos (solo encabezado, o está vacío).');
+        setGrupos(null);
+        return;
+      }
 
-    const encabezados = tabla[0].map(normalizar);
-    const indice = {};
-    encabezados.forEach((h, i) => {
-      const campo = MAPA_ENCABEZADOS[h];
-      if (campo && !(campo in indice)) indice[campo] = i;
-    });
+      const encabezados = tabla[0].map(normalizar);
+      const indice = {};
+      encabezados.forEach((h, i) => {
+        const campo = MAPA_ENCABEZADOS[h];
+        if (campo && !(campo in indice)) indice[campo] = i;
+      });
 
-    if (!('nombre' in indice) || !('precio' in indice)) {
-      setError(
-        'No encontré las columnas "nombre" y "precio" en el archivo. Revisá que la primera fila sea el encabezado, o descargá la plantilla de acá abajo.'
-      );
-      setFilas(null);
-      return;
-    }
+      if (!('nombre' in indice) || !('precio' in indice)) {
+        setError(
+          'No encontré las columnas "nombre" y "precio" en el archivo. Revisá que la primera fila sea el encabezado, o descargá la plantilla de acá abajo.'
+        );
+        setGrupos(null);
+        return;
+      }
 
-    const leer = (fila, campo) => {
-      const i = indice[campo];
-      return i === undefined ? '' : (fila[i] || '').trim();
-    };
-
-    const procesadas = tabla.slice(1).map((fila, i) => {
-      const nombre = leer(fila, 'nombre');
-      const precio = numeroLimpio(leer(fila, 'precio'));
-      const errores = [];
-      if (!nombre) errores.push('sin nombre');
-      if (!precio || precio <= 0) errores.push('sin precio válido');
-
-      return {
-        _fila: i + 2, // +2: la fila 1 es el encabezado, y la gente cuenta desde 1
-        nombre,
-        precio,
-        costo: numeroLimpio(leer(fila, 'costo')),
-        stock: numeroLimpio(leer(fila, 'stock')) ?? 0,
-        stock_minimo: numeroLimpio(leer(fila, 'stock_minimo')) ?? 0,
-        categoria: leer(fila, 'categoria') || null,
-        sku: leer(fila, 'sku') || null,
-        codigo_barras: leer(fila, 'codigo_barras') || null,
-        marca: leer(fila, 'marca') || null,
-        descripcion: leer(fila, 'descripcion') || null,
-        errores,
+      const leer = (fila, campo) => {
+        const i = indice[campo];
+        return i === undefined ? '' : (fila[i] || '').trim();
       };
-    });
 
-    setFilas(procesadas);
+      // Se agrupa por nombre normalizado: varias filas con el mismo
+      // nombre son variantes (talle/color) de un solo producto — la
+      // planilla no necesita ninguna columna extra para indicar eso,
+      // alcanza con repetir el nombre.
+      const gruposPorClave = new Map();
+      tabla.slice(1).forEach((fila, i) => {
+        const nombre = leer(fila, 'nombre');
+        const clave = nombre.toLowerCase();
+        if (!gruposPorClave.has(clave)) {
+          gruposPorClave.set(clave, {
+            nombre,
+            _filas: [], // número de fila real del archivo, para los mensajes de error
+            precio: null,
+            costo: null,
+            categoria: null,
+            proveedor: null,
+            marca: null,
+            descripcion: null,
+            sku: null,
+            codigo_barras: null,
+            stock_minimo: null,
+            stock: null, // solo si termina siendo un producto sin variantes
+            variantes: [],
+          });
+        }
+        const g = gruposPorClave.get(clave);
+        g._filas.push(i + 2); // +2: fila 1 es encabezado, la gente cuenta desde 1
+
+        // Los campos "de producto" se completan con la primera fila del
+        // grupo que los traiga — así no hace falta repetir precio,
+        // categoría, etc. en cada fila de variante.
+        if (g.precio === null) g.precio = numeroLimpio(leer(fila, 'precio'));
+        if (g.costo === null) g.costo = numeroLimpio(leer(fila, 'costo'));
+        if (!g.categoria) g.categoria = leer(fila, 'categoria') || null;
+        if (!g.proveedor) g.proveedor = leer(fila, 'proveedor') || null;
+        if (!g.marca) g.marca = leer(fila, 'marca') || null;
+        if (!g.descripcion) g.descripcion = leer(fila, 'descripcion') || null;
+        if (g.stock_minimo === null) g.stock_minimo = numeroLimpio(leer(fila, 'stock_minimo'));
+
+        const talle = leer(fila, 'talle');
+        const color = leer(fila, 'color');
+
+        if (talle || color) {
+          g.variantes.push({
+            talle: talle || null,
+            color: color || null,
+            stock: numeroLimpio(leer(fila, 'stock')) ?? 0,
+            sku: leer(fila, 'sku') || null,
+            codigo_barras: leer(fila, 'codigo_barras') || null,
+            precio_override: numeroLimpio(leer(fila, 'precio_override')),
+          });
+        } else {
+          // Fila "simple" dentro de un grupo: si el grupo ya tiene
+          // variantes, esta fila se ignora como producto (ya se leyeron
+          // sus campos de producto arriba) — no tiene sentido un stock
+          // "general" mezclado con variantes puntuales.
+          if (g.sku === null) g.sku = leer(fila, 'sku') || null;
+          if (g.codigo_barras === null) g.codigo_barras = leer(fila, 'codigo_barras') || null;
+          if (g.stock === null) g.stock = numeroLimpio(leer(fila, 'stock'));
+        }
+      });
+
+      const grupos = Array.from(gruposPorClave.values()).map((g) => {
+        const tieneVariantes = g.variantes.length > 0;
+        const errores = [];
+        if (!g.nombre) errores.push('sin nombre');
+        if (!g.precio || g.precio <= 0) errores.push('sin precio válido');
+        if (tieneVariantes && g.variantes.some((v) => !v.talle && !v.color)) {
+          errores.push('alguna variante no tiene talle ni color');
+        }
+        return { ...g, tieneVariantes, stock: tieneVariantes ? null : g.stock ?? 0, errores };
+      });
+
+      // Cruce contra lo que ya existe: por SKU/código de barras primero
+      // (es el identificador más confiable), y si no hay, por nombre —
+      // así reimportar la misma planilla actualiza en vez de duplicar.
+      const { data: existentes } = await supabase
+        .from('productos')
+        .select('id, nombre, sku, codigo_barras, tiene_variantes, variantes_producto(id, sku, codigo_barras, atributo1_valor, atributo2_valor, activo)')
+        .eq('negocio_id', negocio.id);
+
+      const porNombre = new Map();
+      const porSku = new Map();
+      const porBarcode = new Map();
+      for (const p of existentes || []) {
+        porNombre.set(p.nombre.toLowerCase(), p);
+        if (p.sku) porSku.set(p.sku, p);
+        if (p.codigo_barras) porBarcode.set(p.codigo_barras, p);
+      }
+
+      const gruposCruzados = grupos.map((g) => {
+        if (g.errores.length > 0) return g;
+
+        const existente =
+          (g.sku && porSku.get(g.sku)) || (g.codigo_barras && porBarcode.get(g.codigo_barras)) || porNombre.get(g.nombre.toLowerCase());
+
+        if (!existente) return { ...g, productoExistenteId: null };
+
+        if (existente.tiene_variantes !== g.tieneVariantes) {
+          return {
+            ...g,
+            productoExistenteId: null,
+            errores: [
+              `ya existe un producto "${g.nombre}" ${existente.tiene_variantes ? 'con variantes' : 'sin variantes'} — no se puede cambiar de tipo importando`,
+            ],
+          };
+        }
+
+        if (!g.tieneVariantes) {
+          return { ...g, productoExistenteId: existente.id };
+        }
+
+        // Variantes: se cruza cada una por su propio SKU/código de
+        // barras, y si no tiene, por la combinación talle+color.
+        const variantesExistentes = (existente.variantes_producto || []).filter((v) => v.activo);
+        const vPorSku = new Map();
+        const vPorBarcode = new Map();
+        const vPorCombo = new Map();
+        for (const v of variantesExistentes) {
+          if (v.sku) vPorSku.set(v.sku, v.id);
+          if (v.codigo_barras) vPorBarcode.set(v.codigo_barras, v.id);
+          vPorCombo.set(`${v.atributo1_valor || ''}::${v.atributo2_valor || ''}`, v.id);
+        }
+
+        const variantesCruzadas = g.variantes.map((v) => ({
+          ...v,
+          varianteExistenteId:
+            (v.sku && vPorSku.get(v.sku)) ||
+            (v.codigo_barras && vPorBarcode.get(v.codigo_barras)) ||
+            vPorCombo.get(`${v.talle || ''}::${v.color || ''}`) ||
+            null,
+        }));
+
+        return { ...g, productoExistenteId: existente.id, variantes: variantesCruzadas };
+      });
+
+      setGrupos(gruposCruzados);
+    } catch (err) {
+      console.error(err);
+      setError('No se pudo leer el archivo. Revisá que sea un .csv o .xlsx válido.');
+      setGrupos(null);
+    } finally {
+      setProcesandoArchivo(false);
+    }
   }
 
-  const validas = filas?.filter((f) => f.errores.length === 0) || [];
-  const invalidas = filas?.filter((f) => f.errores.length > 0) || [];
+  const validos = grupos?.filter((g) => g.errores.length === 0) || [];
+  const invalidos = grupos?.filter((g) => g.errores.length > 0) || [];
+  const nuevos = validos.filter((g) => !g.productoExistenteId);
+  const actualizados = validos.filter((g) => g.productoExistenteId);
 
   async function confirmarImportacion() {
-    if (validas.length === 0 || importandoRef.current) return;
+    if (validos.length === 0 || importandoRef.current) return;
     importandoRef.current = true;
     setImportando(true);
     setError(null);
 
     try {
-      // Categorías: se resuelven por nombre. Las que no existan se crean
-      // en el momento — así el dueño no tiene que pre-cargarlas a mano
-      // antes de poder importar.
-      const nombresCategorias = [...new Set(validas.map((f) => f.categoria).filter(Boolean))];
-      const mapaCategorias = {};
-
-      if (nombresCategorias.length) {
-        const { data: existentes } = await supabase
-          .from('categorias')
-          .select('id, nombre')
-          .eq('negocio_id', negocio.id)
-          .in('nombre', nombresCategorias);
-
-        (existentes || []).forEach((c) => (mapaCategorias[c.nombre] = c.id));
-
-        const faltantes = nombresCategorias.filter((n) => !mapaCategorias[n]);
+      // Categorías y proveedores: se resuelven por nombre, y los que no
+      // existan se crean en el momento — así el dueño no tiene que
+      // pre-cargarlos antes de poder importar.
+      async function resolverPorNombre(tabla, nombres) {
+        const mapa = {};
+        if (!nombres.length) return mapa;
+        const { data: existentes } = await supabase.from(tabla).select('id, nombre').eq('negocio_id', negocio.id).in('nombre', nombres);
+        (existentes || []).forEach((r) => (mapa[r.nombre] = r.id));
+        const faltantes = nombres.filter((n) => !mapa[n]);
         if (faltantes.length) {
-          const { data: creadas, error: errCat } = await supabase
-            .from('categorias')
+          const { data: creados, error: errCrear } = await supabase
+            .from(tabla)
             .insert(faltantes.map((nombre) => ({ negocio_id: negocio.id, nombre })))
             .select('id, nombre');
-          if (errCat) throw errCat;
-          (creadas || []).forEach((c) => (mapaCategorias[c.nombre] = c.id));
+          if (errCrear) throw errCrear;
+          (creados || []).forEach((r) => (mapa[r.nombre] = r.id));
+        }
+        return mapa;
+      }
+
+      const mapaCategorias = await resolverPorNombre('categorias', [...new Set(validos.map((g) => g.categoria).filter(Boolean))]);
+      const mapaProveedores = await resolverPorNombre('proveedores', [...new Set(validos.map((g) => g.proveedor).filter(Boolean))]);
+
+      let contadorNuevos = 0;
+      let contadorActualizados = 0;
+
+      for (const g of validos) {
+        const camposComunes = {
+          categoria_id: g.categoria ? mapaCategorias[g.categoria] : undefined,
+          proveedor_id: g.proveedor ? mapaProveedores[g.proveedor] : undefined,
+          marca: g.marca ?? undefined,
+          descripcion: g.descripcion ?? undefined,
+          precio: g.precio ?? undefined,
+          costo: g.costo ?? undefined,
+          stock_minimo: g.stock_minimo ?? undefined,
+        };
+        // undefined se filtra antes de mandar — así un update parcial
+        // nunca pisa con null un dato que la planilla no traía.
+        const limpiar = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+
+        if (!g.tieneVariantes) {
+          if (g.productoExistenteId) {
+            const { error: errUpd } = await supabase
+              .from('productos')
+              .update(limpiar({ ...camposComunes, sku: g.sku ?? undefined, codigo_barras: g.codigo_barras ?? undefined, stock: g.stock ?? undefined }))
+              .eq('id', g.productoExistenteId);
+            if (errUpd) throw errUpd;
+            contadorActualizados++;
+          } else {
+            const { error: errIns } = await supabase.from('productos').insert({
+              negocio_id: negocio.id,
+              nombre: g.nombre,
+              precio: g.precio,
+              costo: g.costo,
+              categoria_id: g.categoria ? mapaCategorias[g.categoria] : null,
+              proveedor_id: g.proveedor ? mapaProveedores[g.proveedor] : null,
+              marca: g.marca,
+              descripcion: g.descripcion,
+              sku: g.sku,
+              codigo_barras: g.codigo_barras,
+              stock: g.stock ?? 0,
+              stock_minimo: g.stock_minimo ?? 0,
+              tiene_variantes: false,
+              activo: true,
+            });
+            if (errIns) throw errIns;
+            contadorNuevos++;
+          }
+          continue;
+        }
+
+        // Producto con variantes
+        let productoId = g.productoExistenteId;
+        if (productoId) {
+          const { error: errUpd } = await supabase.from('productos').update(limpiar(camposComunes)).eq('id', productoId);
+          if (errUpd) throw errUpd;
+          contadorActualizados++;
+        } else {
+          const { data: nuevo, error: errIns } = await supabase
+            .from('productos')
+            .insert({
+              negocio_id: negocio.id,
+              nombre: g.nombre,
+              precio: g.precio,
+              costo: g.costo,
+              categoria_id: g.categoria ? mapaCategorias[g.categoria] : null,
+              proveedor_id: g.proveedor ? mapaProveedores[g.proveedor] : null,
+              marca: g.marca,
+              descripcion: g.descripcion,
+              stock: 0,
+              stock_minimo: g.stock_minimo ?? 0,
+              tiene_variantes: true,
+              activo: true,
+            })
+            .select('id')
+            .single();
+          if (errIns) throw errIns;
+          productoId = nuevo.id;
+          contadorNuevos++;
+        }
+
+        for (const v of g.variantes) {
+          if (v.varianteExistenteId) {
+            const { error: errUpdV } = await supabase
+              .from('variantes_producto')
+              .update({ stock: v.stock, precio_override: v.precio_override })
+              .eq('id', v.varianteExistenteId);
+            if (errUpdV) throw errUpdV;
+          } else {
+            const { error: errInsV } = await supabase.from('variantes_producto').insert({
+              producto_id: productoId,
+              negocio_id: negocio.id,
+              atributo1_nombre: v.talle ? 'Talle' : null,
+              atributo1_valor: v.talle,
+              atributo2_nombre: v.color ? 'Color' : null,
+              atributo2_valor: v.color,
+              sku: v.sku,
+              codigo_barras: v.codigo_barras,
+              stock: v.stock,
+              precio_override: v.precio_override,
+              activo: true,
+            });
+            if (errInsV) throw errInsV;
+          }
         }
       }
 
-      const payload = validas.map((f) => ({
-        negocio_id: negocio.id,
-        nombre: f.nombre,
-        precio: f.precio,
-        costo: f.costo,
-        stock: f.stock,
-        stock_minimo: f.stock_minimo,
-        categoria_id: f.categoria ? mapaCategorias[f.categoria] || null : null,
-        sku: f.sku,
-        codigo_barras: f.codigo_barras,
-        marca: f.marca,
-        descripcion: f.descripcion,
-        tiene_variantes: false,
-        activo: true,
-      }));
-
-      const { error: errInsert } = await supabase.from('productos').insert(payload);
-      if (errInsert) throw errInsert;
-
-      setResultado({ importados: payload.length, conError: invalidas.length });
-      setFilas(null);
+      setResultado({ nuevos: contadorNuevos, actualizados: contadorActualizados, conError: invalidos.length });
+      setGrupos(null);
     } catch (err) {
       console.error(err);
-      const mensaje = err.message?.includes('duplicate') || err.code === '23505'
-        ? 'Alguno de los SKU o códigos de barras ya existe en tu catálogo. Sacá esa fila del archivo (o el dato duplicado) y probá de nuevo.'
-        : 'No se pudo importar. Revisá el archivo y probá de nuevo.';
+      const mensaje =
+        err.message?.includes('duplicate') || err.code === '23505'
+          ? 'Alguno de los SKU o códigos de barras ya existe en otro producto de tu catálogo. Revisá el archivo y probá de nuevo.'
+          : 'No se pudo importar. Revisá el archivo y probá de nuevo.';
       setError(mensaje);
     } finally {
       importandoRef.current = false;
@@ -260,12 +502,12 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
             <Check size={26} className="text-accent" />
           </div>
           <p className="font-display text-lg text-ink">
-            {resultado.importados} producto{resultado.importados === 1 ? '' : 's'} importado
-            {resultado.importados === 1 ? '' : 's'}
+            {resultado.nuevos} producto{resultado.nuevos === 1 ? '' : 's'} nuevo{resultado.nuevos === 1 ? '' : 's'}
+            {resultado.actualizados > 0 && `, ${resultado.actualizados} actualizado${resultado.actualizados === 1 ? '' : 's'}`}
           </p>
           {resultado.conError > 0 && (
             <p className="text-xs text-amber">
-              {resultado.conError} fila{resultado.conError === 1 ? '' : 's'} no se {resultado.conError === 1 ? 'importó' : 'importaron'} por tener errores.
+              {resultado.conError} producto{resultado.conError === 1 ? '' : 's'} no se {resultado.conError === 1 ? 'importó' : 'importaron'} por tener errores.
             </p>
           )}
         </div>
@@ -288,14 +530,15 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
         </button>
       </div>
 
-      {!filas && (
+      {!grupos && (
         <>
           <div className="rounded-2xl bg-surface p-4 shadow-card">
-            <p className="text-sm text-ink">Subí un archivo CSV con tu catálogo.</p>
+            <p className="text-sm text-ink">Subí un archivo Excel (.xlsx) o CSV con tu catálogo.</p>
             <p className="mt-1 text-xs text-muted">
-              De Excel o Google Sheets: <span className="font-medium">Archivo → Guardar/Descargar como → CSV</span>.
               Necesita como mínimo las columnas <span className="font-mono">nombre</span> y{' '}
-              <span className="font-mono">precio</span>.
+              <span className="font-mono">precio</span>. Si un producto tiene variantes (talle/color), repetí el mismo
+              nombre en una fila por cada variante. Si el nombre, SKU o código de barras ya existe en tu catálogo, se
+              actualiza en vez de crear uno nuevo.
             </p>
 
             <button
@@ -308,9 +551,16 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
 
           <label className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line bg-surface py-10 text-center">
             <Upload size={22} className="text-muted" />
-            <span className="text-sm text-ink">Elegir archivo CSV</span>
+            <span className="text-sm text-ink">{procesandoArchivo ? 'Leyendo…' : 'Elegir archivo .xlsx o .csv'}</span>
             {nombreArchivo && <span className="text-xs text-muted">{nombreArchivo}</span>}
-            <input ref={inputRef} type="file" accept=".csv,text/csv" onChange={onElegirArchivo} className="hidden" />
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={onElegirArchivo}
+              disabled={procesandoArchivo}
+              className="hidden"
+            />
           </label>
 
           {error && (
@@ -321,16 +571,20 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
         </>
       )}
 
-      {filas && (
+      {grupos && (
         <>
           <div className="flex gap-3">
             <div className="flex-1 rounded-xl bg-surface p-3 text-center shadow-card">
-              <p className="font-display text-xl font-semibold text-accent">{validas.length}</p>
-              <p className="text-xs text-muted">Listos para importar</p>
+              <p className="font-display text-xl font-semibold text-accent">{nuevos.length}</p>
+              <p className="text-xs text-muted">Nuevos</p>
             </div>
-            {invalidas.length > 0 && (
+            <div className="flex-1 rounded-xl bg-surface p-3 text-center shadow-card">
+              <p className="font-display text-xl font-semibold text-ink">{actualizados.length}</p>
+              <p className="text-xs text-muted">Se actualizan</p>
+            </div>
+            {invalidos.length > 0 && (
               <div className="flex-1 rounded-xl bg-surface p-3 text-center shadow-card">
-                <p className="font-display text-xl font-semibold text-danger">{invalidas.length}</p>
+                <p className="font-display text-xl font-semibold text-danger">{invalidos.length}</p>
                 <p className="text-xs text-muted">Con error</p>
               </div>
             )}
@@ -339,26 +593,33 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
           {error && <p className="rounded-xl bg-danger-soft p-3 text-xs text-danger">{error}</p>}
 
           <div className="max-h-72 space-y-1.5 overflow-y-auto rounded-xl bg-surface p-2 shadow-card">
-            {filas.map((f) => (
+            {grupos.map((g) => (
               <div
-                key={f._fila}
-                className={`flex items-center justify-between rounded-lg px-2.5 py-2 text-sm ${
-                  f.errores.length ? 'bg-danger-soft' : ''
-                }`}
+                key={g.nombre + g._filas[0]}
+                className={`rounded-lg px-2.5 py-2 text-sm ${g.errores.length ? 'bg-danger-soft' : ''}`}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-ink">
-                    {f.nombre || <span className="text-muted">(sin nombre)</span>}
-                  </p>
-                  {f.errores.length > 0 && (
-                    <p className="text-xs text-danger">Fila {f._fila}: {f.errores.join(', ')}</p>
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 truncate text-ink">
+                      {g.tieneVariantes && <Layers size={12} className="shrink-0 text-muted" />}
+                      {g.nombre || <span className="text-muted">(sin nombre)</span>}
+                    </p>
+                    {g.errores.length > 0 ? (
+                      <p className="text-xs text-danger">
+                        Fila{g._filas.length > 1 ? 's' : ''} {g._filas.join(', ')}: {g.errores.join(', ')}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted">
+                        {g.tieneVariantes ? `${g.variantes.length} variante${g.variantes.length === 1 ? '' : 's'}` : null}
+                        {g.tieneVariantes && ' · '}
+                        {g.productoExistenteId ? 'se actualiza' : 'nuevo'}
+                      </p>
+                    )}
+                  </div>
+                  {!g.errores.length && (
+                    <span className="shrink-0 font-mono text-xs text-muted">Gs. {g.precio.toLocaleString('es-PY')}</span>
                   )}
                 </div>
-                {!f.errores.length && (
-                  <span className="shrink-0 font-mono text-xs text-muted">
-                    Gs. {f.precio.toLocaleString('es-PY')}
-                  </span>
-                )}
               </div>
             ))}
           </div>
@@ -366,7 +627,7 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
           <div className="flex gap-2">
             <button
               onClick={() => {
-                setFilas(null);
+                setGrupos(null);
                 setNombreArchivo('');
                 if (inputRef.current) inputRef.current.value = '';
               }}
@@ -376,10 +637,10 @@ export default function ImportarProductos({ onCancelar, onImportado }) {
             </button>
             <button
               onClick={confirmarImportacion}
-              disabled={importando || validas.length === 0}
+              disabled={importando || validos.length === 0}
               className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
             >
-              {importando ? 'Importando…' : `Importar ${validas.length}`}
+              {importando ? 'Importando…' : `Importar ${validos.length}`}
             </button>
           </div>
         </>

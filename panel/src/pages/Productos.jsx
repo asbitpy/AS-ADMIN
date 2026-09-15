@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, AlertTriangle, Upload, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Plus, AlertTriangle, Upload, Download, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useRealtimeTick } from '../lib/realtime';
+import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import ProductoCard from '../components/ProductoCard';
 import ProductoForm from '../components/ProductoForm';
 import ImportarProductos from '../components/ImportarProductos';
@@ -21,7 +23,9 @@ function formatoGsCompacto(monto) {
 
 export default function Productos() {
   const { negocio } = useAuth();
+  const { esEscritorio } = useEsEscritorio();
   const [productos, setProductos] = useState([]);
+  const [exportando, setExportando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState('lista'); // 'lista' | 'form' | 'importar'
@@ -63,6 +67,63 @@ export default function Productos() {
     setCargando(false);
   }
 
+  // Excel de verdad (no CSV) con el mismo formato de columnas que
+  // Importar — así se puede exportar, editar en Excel y volver a
+  // importar sin transformar nada. Trae categoría/proveedor por nombre
+  // (no el id) y una fila por variante, igual que espera Importar.
+  async function exportarXLSX() {
+    setExportando(true);
+    try {
+      const { data } = await supabase
+        .from('productos')
+        .select(
+          '*, categoria:categorias(nombre), proveedor:proveedores(nombre), variantes_producto(atributo1_valor, atributo2_valor, sku, codigo_barras, stock, precio_override, activo)'
+        )
+        .eq('negocio_id', negocio.id)
+        .eq('activo', true)
+        .order('nombre');
+
+      const filas = [];
+      for (const p of data || []) {
+        const base = {
+          nombre: p.nombre,
+          precio: p.precio,
+          costo: p.costo || '',
+          stock_minimo: p.stock_minimo || 0,
+          categoria: p.categoria?.nombre || '',
+          proveedor: p.proveedor?.nombre || '',
+          marca: p.marca || '',
+          descripcion: p.descripcion || '',
+        };
+        const variantesActivas = (p.variantes_producto || []).filter((v) => v.activo);
+        if (p.tiene_variantes && variantesActivas.length > 0) {
+          for (const v of variantesActivas) {
+            filas.push({
+              ...base,
+              stock: v.stock,
+              sku: v.sku || '',
+              codigo_barras: v.codigo_barras || '',
+              talle: v.atributo1_valor || '',
+              color: v.atributo2_valor || '',
+              precio_override: v.precio_override || '',
+            });
+          }
+        } else {
+          filas.push({ ...base, stock: p.stock, sku: p.sku || '', codigo_barras: p.codigo_barras || '', talle: '', color: '', precio_override: '' });
+        }
+      }
+
+      const hoja = XLSX.utils.json_to_sheet(filas, {
+        header: ['nombre', 'precio', 'costo', 'stock', 'stock_minimo', 'categoria', 'proveedor', 'sku', 'codigo_barras', 'marca', 'talle', 'color', 'precio_override', 'descripcion'],
+      });
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja, 'Productos');
+      XLSX.writeFile(libro, `productos_${negocio.nombre.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } finally {
+      setExportando(false);
+    }
+  }
+
   const filtrados = productos.filter((p) => p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
   const conStockBajo = productos.filter((p) => p.stock_total <= p.stock_minimo);
   const valorTotalInventario = productos.reduce((acc, p) => acc + p.valor_en_stock, 0);
@@ -99,6 +160,15 @@ export default function Productos() {
       <div className="flex items-center justify-between">
         <p className="font-display text-xl text-ink">Productos</p>
         <div className="flex gap-2">
+          {esEscritorio && (
+            <button
+              onClick={exportarXLSX}
+              disabled={exportando || productos.length === 0}
+              className="flex items-center gap-1 rounded-full bg-accent-soft px-3 py-2 text-xs font-medium text-accent active:scale-[0.98] disabled:opacity-50"
+            >
+              <Download size={16} /> {exportando ? 'Exportando…' : 'Exportar'}
+            </button>
+          )}
           <button
             onClick={() => setVista('importar')}
             className="flex items-center gap-1 rounded-full bg-accent-soft px-3 py-2 text-xs font-medium text-accent active:scale-[0.98]"
