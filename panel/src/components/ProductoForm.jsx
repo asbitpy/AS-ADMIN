@@ -325,6 +325,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
             type="number"
             value={datos.costo}
             onChange={(e) => setDatos({ ...datos, costo: e.target.value })}
+            onWheel={(e) => e.currentTarget.blur()}
             className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
@@ -334,6 +335,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
             type="number"
             value={datos.precio}
             onChange={(e) => setDatos({ ...datos, precio: e.target.value })}
+            onWheel={(e) => e.currentTarget.blur()}
             className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
@@ -343,6 +345,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
             type="number"
             value={datos.precio_mayorista}
             onChange={(e) => setDatos({ ...datos, precio_mayorista: e.target.value })}
+            onWheel={(e) => e.currentTarget.blur()}
             className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
@@ -352,6 +355,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
             type="number"
             value={datos.impuesto_porcentaje}
             onChange={(e) => setDatos({ ...datos, impuesto_porcentaje: e.target.value })}
+            onWheel={(e) => e.currentTarget.blur()}
             className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
@@ -388,6 +392,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
             placeholder="Stock"
             value={datos.stock}
             onChange={(e) => setDatos({ ...datos, stock: e.target.value })}
+            onWheel={(e) => e.currentTarget.blur()}
             className="rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
@@ -399,6 +404,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
           type="number"
           value={datos.stock_minimo}
           onChange={(e) => setDatos({ ...datos, stock_minimo: e.target.value })}
+          onWheel={(e) => e.currentTarget.blur()}
           className="mt-1 w-24 rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
         />
       </div>

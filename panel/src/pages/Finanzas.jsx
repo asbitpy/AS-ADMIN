@@ -7,6 +7,7 @@ import { useRealtimeTick } from '../lib/realtime';
 import { subirComprobanteMovimiento, urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 import GastosFijos from '../components/GastosFijos';
+import { useEsEscritorio } from '../hooks/useEsEscritorio';
 
 const PERIODOS = [
   { id: 'hoy', label: 'Hoy' },
@@ -29,6 +30,16 @@ const CATEGORIAS_LABEL = {
 function etiquetaCategoria(cat) {
   return CATEGORIAS_LABEL[cat] || (cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Sin categoría');
 }
+
+// Mismos valores que metodo_pago (database/004_retail_core.sql) y las
+// mismas etiquetas que ya usa Venta.jsx, para no inventar otras.
+const METODOS_PAGO_LABEL = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  tarjeta: 'Tarjeta',
+  qr: 'QR',
+  credito: 'Crédito',
+};
 
 function formatoGsCompacto(monto) {
   const n = Number(monto);
@@ -72,6 +83,7 @@ function calcularDelta(actual, previo) {
 export default function Finanzas() {
   const { negocio } = useAuth();
   const navigate = useNavigate();
+  const { esEscritorio } = useEsEscritorio();
   const tieneRetail = (negocio?.modulos_activos || []).some((m) => m === 'pos' || m === 'inventario');
   const tieneAgenda = (negocio?.modulos_activos || []).includes('agenda');
 
@@ -83,6 +95,14 @@ export default function Finanzas() {
   const [topProductos, setTopProductos] = useState([]);
   const [topServicios, setTopServicios] = useState([]);
   const [proyectado, setProyectado] = useState(null);
+  const [desglosePagos, setDesglosePagos] = useState([]);
+  // Filtro de la tabla de Movimientos al tocar una categoría del
+  // desglose (solo interactivo en escritorio — ver Categorías más abajo).
+  const [filtroCategoria, setFiltroCategoria] = useState(null); // { tipo, categoria } | null
+  // Rango de fechas propio (solo escritorio): mientras las dos fechas
+  // no estén cargadas, se ignora y manda el período de los botones de
+  // siempre — así en celular esto nunca cambia nada.
+  const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
 
   const [vistaForm, setVistaForm] = useState(false);
   const [tipoNuevo, setTipoNuevo] = useState('egreso');
@@ -109,12 +129,22 @@ export default function Finanzas() {
   const tickConversaciones = useRealtimeTick('conversaciones', negocio?.id);
   const tickProductos = useRealtimeTick('productos', negocio?.id);
 
+  // Si las dos fechas del rango propio están cargadas, manda eso;
+  // si no, el período de los botones de siempre (con "hasta" abierto,
+  // hasta ahora — mismo comportamiento que ya había).
+  function rangoActivo() {
+    if (rangoCustom.desde && rangoCustom.hasta) return { desde: rangoCustom.desde, hasta: rangoCustom.hasta };
+    return { desde: desdePeriodo(periodo).slice(0, 10), hasta: null };
+  }
+  const usaRangoCustom = Boolean(rangoCustom.desde && rangoCustom.hasta);
+
   useEffect(() => {
     if (!negocio) return;
     cargarMovimientos();
     cargarAnterior();
     cargarTopVendidos();
-  }, [negocio, periodo, tickMovimientos]);
+    cargarDesglosePagos();
+  }, [negocio, periodo, tickMovimientos, rangoCustom.desde, rangoCustom.hasta]);
 
   useEffect(() => {
     if (!negocio) return;
@@ -124,19 +154,28 @@ export default function Finanzas() {
 
   async function cargarMovimientos() {
     setCargando(true);
-    const { data } = await supabase
+    const { desde, hasta } = rangoActivo();
+    let q = supabase
       .from('movimientos_financieros')
       .select('*')
       .eq('negocio_id', negocio.id)
-      .gte('fecha', desdePeriodo(periodo).slice(0, 10))
+      .gte('fecha', desde)
       .order('fecha', { ascending: false })
       .order('creado_en', { ascending: false })
       .limit(300);
+    if (hasta) q = q.lte('fecha', hasta);
+    const { data } = await q;
     setMovimientos(data || []);
     setCargando(false);
   }
 
   async function cargarAnterior() {
+    // Con un rango propio no hay un "período anterior" claro que
+    // comparar — se oculta el delta en vez de inventar una comparación.
+    if (usaRangoCustom) {
+      setAnterior(null);
+      return;
+    }
     const { desde, hasta } = rangoPeriodoAnterior(periodo);
     const { data } = await supabase
       .from('movimientos_financieros')
@@ -150,18 +189,55 @@ export default function Finanzas() {
     setAnterior({ ingresos: ing, egresos: egr, neto: ing - egr });
   }
 
+  // Cuánto entró por cada método de pago (efectivo, transferencia...) —
+  // el dato ya vive en venta_pagos, acá solo se suma por método.
+  async function cargarDesglosePagos() {
+    if (!tieneRetail) {
+      setDesglosePagos([]);
+      return;
+    }
+    const { desde, hasta } = rangoActivo();
+    let q = supabase
+      .from('ventas')
+      .select('id')
+      .eq('negocio_id', negocio.id)
+      .eq('estado', 'completada')
+      .gte('creado_en', desde);
+    if (hasta) q = q.lte('creado_en', `${hasta}T23:59:59`);
+    const { data: ventas } = await q;
+    const ids = (ventas || []).map((v) => v.id);
+
+    if (!ids.length) {
+      setDesglosePagos([]);
+      return;
+    }
+
+    const { data: pagos } = await supabase.from('venta_pagos').select('metodo_pago, monto').in('venta_id', ids);
+    const mapa = {};
+    for (const p of pagos || []) {
+      mapa[p.metodo_pago] = (mapa[p.metodo_pago] || 0) + Number(p.monto);
+    }
+    setDesglosePagos(
+      Object.entries(mapa)
+        .map(([metodo, monto]) => ({ metodo, monto }))
+        .sort((a, b) => b.monto - a.monto)
+    );
+  }
+
   // Top 5 productos (retail) y servicios (agenda) del período, por
   // cantidad vendida/atendida.
   async function cargarTopVendidos() {
-    const desde = desdePeriodo(periodo).slice(0, 10);
+    const { desde, hasta } = rangoActivo();
 
     if (tieneRetail) {
-      const { data: ventas } = await supabase
+      let qVentas = supabase
         .from('ventas')
         .select('id')
         .eq('negocio_id', negocio.id)
         .eq('estado', 'completada')
         .gte('creado_en', desde);
+      if (hasta) qVentas = qVentas.lte('creado_en', `${hasta}T23:59:59`);
+      const { data: ventas } = await qVentas;
       const ids = (ventas || []).map((v) => v.id);
 
       if (ids.length) {
@@ -184,12 +260,14 @@ export default function Finanzas() {
     }
 
     if (tieneAgenda) {
-      const { data: turnos } = await supabase
+      let qTurnos = supabase
         .from('turnos')
         .select('monto, servicio:servicios(nombre)')
         .eq('negocio_id', negocio.id)
         .eq('estado', 'completado')
         .gte('fecha_hora', desde);
+      if (hasta) qTurnos = qTurnos.lte('fecha_hora', `${hasta}T23:59:59`);
+      const { data: turnos } = await qTurnos;
 
       const mapa = {};
       for (const t of turnos || []) {
@@ -352,6 +430,38 @@ export default function Finanzas() {
       })
       .sort((a, b) => b.monto - a.monto);
   }, [movimientos]);
+
+  // Ingresos/egresos por día del período — solo tiene sentido con más
+  // de un día a la vista (no con "Hoy"). Solo se muestra en escritorio.
+  const tendenciaDiaria = useMemo(() => {
+    if (periodo === 'hoy' && !usaRangoCustom) return [];
+    const mapa = {};
+    for (const m of movimientos) {
+      if (!mapa[m.fecha]) mapa[m.fecha] = { fecha: m.fecha, ingresos: 0, egresos: 0 };
+      if (m.tipo === 'ingreso') mapa[m.fecha].ingresos += Number(m.monto);
+      else mapa[m.fecha].egresos += Number(m.monto);
+    }
+    return Object.values(mapa).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }, [movimientos, periodo, usaRangoCustom]);
+
+  const maxTendencia = useMemo(
+    () => Math.max(...tendenciaDiaria.map((d) => Math.max(d.ingresos, d.egresos)), 1),
+    [tendenciaDiaria]
+  );
+
+  // Toca una categoría del desglose (solo escritorio, ver más abajo) y
+  // filtra la tabla de Movimientos a esa categoría — tocar de nuevo la
+  // misma la saca. En celular nunca se activa (no hay onClick ahí).
+  function toggleFiltroCategoria(tipo, categoria) {
+    setFiltroCategoria((prev) => (prev && prev.tipo === tipo && prev.categoria === categoria ? null : { tipo, categoria }));
+  }
+
+  const movimientosFiltrados = useMemo(() => {
+    if (!filtroCategoria) return movimientos;
+    return movimientos.filter(
+      (m) => m.tipo === filtroCategoria.tipo && (m.categoria || 'otro') === filtroCategoria.categoria
+    );
+  }, [movimientos, filtroCategoria]);
 
   async function agregarMovimiento(e) {
     e.preventDefault();
@@ -548,18 +658,49 @@ export default function Finanzas() {
       )}
 
       {/* ---- Plata ---- */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1">
         {PERIODOS.map((p) => (
           <button
             key={p.id}
-            onClick={() => setPeriodo(p.id)}
+            onClick={() => {
+              setPeriodo(p.id);
+              setRangoCustom({ desde: '', hasta: '' });
+            }}
             className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium ${
-              periodo === p.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
+              !usaRangoCustom && periodo === p.id ? 'bg-accent text-accent-ink' : 'bg-surface text-muted'
             }`}
           >
             {p.label}
           </button>
         ))}
+
+        {esEscritorio && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted">o</span>
+            <input
+              type="date"
+              value={rangoCustom.desde}
+              onChange={(e) => setRangoCustom((r) => ({ ...r, desde: e.target.value }))}
+              className="rounded-full border border-line bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            <span className="text-xs text-muted">a</span>
+            <input
+              type="date"
+              value={rangoCustom.hasta}
+              onChange={(e) => setRangoCustom((r) => ({ ...r, hasta: e.target.value }))}
+              className="rounded-full border border-line bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            {usaRangoCustom && (
+              <button
+                onClick={() => setRangoCustom({ desde: '', hasta: '' })}
+                title="Limpiar rango"
+                className="rounded-full bg-surface p-1.5 text-muted"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3">
@@ -586,188 +727,362 @@ export default function Finanzas() {
         />
       </div>
 
-      {/* ---- Lo que se viene: no es plata que ya se movió, es lo que ya
-           se sabe que hay que cobrar o pagar ---- */}
-      {proyectado &&
-        (proyectado.porCobrarReservas > 0 || proyectado.porCobrarCreditos > 0 || proyectado.porPagarFijos > 0) && (
-          <div className="space-y-1.5 rounded-xl bg-surface p-3 shadow-card">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo que se viene</p>
-            {proyectado.porCobrarReservas > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Pedidos reservados por cobrar</span>
-                <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarReservas)}</span>
+      {/* ---- Tendencia del período (solo escritorio, ancho completo):
+           antes solo se veía el total, no cómo vino cada día. ---- */}
+      {esEscritorio && tendenciaDiaria.length > 1 && (
+        <div className="rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Tendencia del período</p>
+          <div className="mt-3 flex h-28 items-end gap-1.5">
+            {tendenciaDiaria.map((d) => (
+              <div key={d.fecha} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+                <div className="flex h-full w-full items-end justify-center gap-0.5">
+                  <div
+                    className="w-1/2 rounded-t bg-accent"
+                    style={{ height: `${Math.max((d.ingresos / maxTendencia) * 100, d.ingresos > 0 ? 3 : 0)}%` }}
+                    title={`Ingresos ${d.fecha}: Gs. ${d.ingresos.toLocaleString('es-PY')}`}
+                  />
+                  <div
+                    className="w-1/2 rounded-t bg-danger"
+                    style={{ height: `${Math.max((d.egresos / maxTendencia) * 100, d.egresos > 0 ? 3 : 0)}%` }}
+                    title={`Egresos ${d.fecha}: Gs. ${d.egresos.toLocaleString('es-PY')}`}
+                  />
+                </div>
+                <span className="text-[9px] text-muted">{d.fecha.slice(8, 10)}</span>
               </div>
-            )}
-            {proyectado.porCobrarCreditos > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Créditos por cobrar</span>
-                <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarCreditos)}</span>
-              </div>
-            )}
-            {proyectado.porPagarFijos > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Gastos fijos sin confirmar este mes</span>
-                <span className="font-mono text-danger">− {formatoGsCompacto(proyectado.porPagarFijos)}</span>
-              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-3 text-[10px] text-muted">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-accent" /> Ingresos
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-danger" /> Egresos
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Secciones reutilizables: se arman una sola vez y se
+           renderizan en un orden distinto según el tamaño (ver más
+           abajo) — en celular, en una sola columna en el orden de
+           siempre; en escritorio, en 2 columnas con la derecha fija
+           (position: sticky) para que no se pierda de vista al bajar
+           por una tabla de Movimientos larga. ---- */}
+      {(() => {
+        const seccionProyectado = proyectado &&
+          (proyectado.porCobrarReservas > 0 || proyectado.porCobrarCreditos > 0 || proyectado.porPagarFijos > 0) && (
+            <div key="proyectado" className="space-y-1.5 rounded-xl bg-surface p-3 shadow-card">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo que se viene</p>
+              {proyectado.porCobrarReservas > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">Pedidos reservados por cobrar</span>
+                  <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarReservas)}</span>
+                </div>
+              )}
+              {proyectado.porCobrarCreditos > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">Créditos por cobrar</span>
+                  <span className="font-mono text-accent">+ {formatoGsCompacto(proyectado.porCobrarCreditos)}</span>
+                </div>
+              )}
+              {proyectado.porPagarFijos > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">Gastos fijos sin confirmar este mes</span>
+                  <span className="font-mono text-danger">− {formatoGsCompacto(proyectado.porPagarFijos)}</span>
+                </div>
+              )}
+            </div>
+          );
+
+        const seccionBotonCargar = (
+          <button
+            key="boton-cargar"
+            onClick={() => {
+              setTipoNuevo('egreso');
+              setCategoriaNueva('gasto');
+              setMontoNuevo('');
+              setNotaNueva('');
+              setGastoFijoActivo(null);
+              setVistaForm(true);
+            }}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-medium text-ink"
+          >
+            <Plus size={14} /> Cargar un gasto o ingreso manual
+          </button>
+        );
+
+        const seccionGastosFijosComponente = (
+          <div key="gastos-fijos-comp">
+            <GastosFijos negocioId={negocio.id} onCambio={cargarPendientes} />
+          </div>
+        );
+
+        const seccionGastosFijosDelMes = pendientes && pendientes.gastosFijos.length > 0 && (
+          <div key="gastos-fijos-mes" className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Gastos fijos de este mes</p>
+            <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+              {pendientes.gastosFijos.map((g) => {
+                const pagado = pendientes.gastosFijosPagadosIds.has(g.id);
+                const vencido = !pagado && g.dia_mes <= diaDeHoy;
+                return (
+                  <div key={g.id} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                    <div>
+                      <p className="text-sm text-ink">{g.nombre}</p>
+                      <p className={`text-xs ${vencido ? 'text-amber' : 'text-muted'}`}>
+                        Gs. {Number(g.monto_estimado).toLocaleString('es-PY')} ·{' '}
+                        {pagado
+                          ? 'Pagado este mes'
+                          : vencido
+                            ? `Venció el día ${g.dia_mes}`
+                            : `Vence el día ${g.dia_mes}`}
+                      </p>
+                    </div>
+                    {pagado ? (
+                      <Check size={18} className="shrink-0 text-accent" />
+                    ) : (
+                      <button
+                        onClick={() => iniciarPagoGastoFijo(g)}
+                        className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                          vencido ? 'bg-amber-soft text-amber' : 'bg-base text-muted'
+                        }`}
+                      >
+                        Confirmar pago
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+
+        const seccionCargandoOVacio = (
+          <div key="cargando-o-vacio">
+            {cargando && <p className="pt-4 text-center text-sm text-muted">Cargando…</p>}
+            {!cargando && porCategoria.length === 0 && (
+              <p className="pt-4 text-center text-sm text-muted">
+                Sin movimientos en este período. Los ingresos aparecen solos cuando se cobra una venta o se completa un
+                turno.
+              </p>
             )}
           </div>
-        )}
+        );
 
-      <button
-        onClick={() => {
-          setTipoNuevo('egreso');
-          setCategoriaNueva('gasto');
-          setMontoNuevo('');
-          setNotaNueva('');
-          setGastoFijoActivo(null);
-          setVistaForm(true);
-        }}
-        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-medium text-ink"
-      >
-        <Plus size={14} /> Cargar un gasto o ingreso manual
-      </button>
-
-      <GastosFijos negocioId={negocio.id} onCambio={cargarPendientes} />
-
-      {/* ---- Gastos fijos de este mes: arriba de todo, antes de los
-           movimientos sueltos — es plata que ya sabés que se viene ---- */}
-      {pendientes && pendientes.gastosFijos.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Gastos fijos de este mes</p>
-          <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
-            {pendientes.gastosFijos.map((g) => {
-              const pagado = pendientes.gastosFijosPagadosIds.has(g.id);
-              const vencido = !pagado && g.dia_mes <= diaDeHoy;
+        const seccionCategorias = porCategoria.length > 0 && (
+          <div key="categorias" className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+            {porCategoria.map(({ tipo, categoria, monto }) => {
+              const activo = filtroCategoria?.tipo === tipo && filtroCategoria?.categoria === categoria;
               return (
-                <div key={g.id} className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                  <div>
-                    <p className="text-sm text-ink">{g.nombre}</p>
-                    <p className={`text-xs ${vencido ? 'text-amber' : 'text-muted'}`}>
-                      Gs. {Number(g.monto_estimado).toLocaleString('es-PY')} ·{' '}
-                      {pagado
-                        ? 'Pagado este mes'
-                        : vencido
-                          ? `Venció el día ${g.dia_mes}`
-                          : `Vence el día ${g.dia_mes}`}
-                    </p>
+                <div
+                  key={`${tipo}:${categoria}`}
+                  onClick={esEscritorio ? () => toggleFiltroCategoria(tipo, categoria) : undefined}
+                  title={esEscritorio ? 'Filtrar Movimientos por esta categoría' : undefined}
+                  className={`flex items-center justify-between rounded-lg px-2.5 py-2 ${
+                    esEscritorio ? 'cursor-pointer' : ''
+                  } ${activo ? 'bg-accent-soft' : ''}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {tipo === 'ingreso' ? (
+                      <TrendingUp size={14} className="text-accent" />
+                    ) : (
+                      <TrendingDown size={14} className="text-danger" />
+                    )}
+                    <span className="text-sm text-ink">{etiquetaCategoria(categoria)}</span>
                   </div>
-                  {pagado ? (
-                    <Check size={18} className="shrink-0 text-accent" />
-                  ) : (
-                    <button
-                      onClick={() => iniciarPagoGastoFijo(g)}
-                      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                        vencido ? 'bg-amber-soft text-amber' : 'bg-base text-muted'
-                      }`}
-                    >
-                      Confirmar pago
-                    </button>
-                  )}
+                  <span className={`font-mono text-sm ${tipo === 'ingreso' ? 'text-accent' : 'text-danger'}`}>
+                    {tipo === 'ingreso' ? '+' : '−'} Gs. {monto.toLocaleString('es-PY')}
+                  </span>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        );
 
-      {cargando && <p className="pt-4 text-center text-sm text-muted">Cargando…</p>}
-
-      {!cargando && porCategoria.length === 0 && (
-        <p className="pt-4 text-center text-sm text-muted">
-          Sin movimientos en este período. Los ingresos aparecen solos cuando se cobra una venta o se completa un turno.
-        </p>
-      )}
-
-      {porCategoria.length > 0 && (
-        <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
-          {porCategoria.map(({ tipo, categoria, monto }) => (
-            <div key={`${tipo}:${categoria}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
-              <div className="flex items-center gap-2">
-                {tipo === 'ingreso' ? (
-                  <TrendingUp size={14} className="text-accent" />
-                ) : (
-                  <TrendingDown size={14} className="text-danger" />
-                )}
-                <span className="text-sm text-ink">{etiquetaCategoria(categoria)}</span>
-              </div>
-              <span className={`font-mono text-sm ${tipo === 'ingreso' ? 'text-accent' : 'text-danger'}`}>
-                {tipo === 'ingreso' ? '+' : '−'} Gs. {monto.toLocaleString('es-PY')}
-              </span>
+        const seccionDesglosePagos = desglosePagos.length > 0 && (
+          <div key="desglose-pagos" className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Por método de pago</p>
+            <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+              {desglosePagos.map((d) => (
+                <div key={d.metodo} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <span className="text-sm text-ink">{METODOS_PAGO_LABEL[d.metodo] || d.metodo}</span>
+                  <span className="font-mono text-sm text-accent">Gs. {d.monto.toLocaleString('es-PY')}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* ---- Top vendidos del período ---- */}
-      {(topProductos.length > 0 || topServicios.length > 0) && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo más vendido</p>
-          <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
-            {topProductos.map((p, i) => (
-              <div key={`prod-${p.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                <div className="flex items-center gap-2">
-                  {i === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
-                  <span className="text-sm text-ink">{p.nombre}</span>
-                </div>
-                <span className="shrink-0 font-mono text-xs text-muted">{p.cantidad} vendidos</span>
-              </div>
-            ))}
-            {topServicios.map((s, i) => (
-              <div key={`serv-${s.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                <div className="flex items-center gap-2">
-                  {i === 0 && topProductos.length === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
-                  <span className="text-sm text-ink">{s.nombre}</span>
-                </div>
-                <span className="shrink-0 font-mono text-xs text-muted">{s.cantidad} turnos</span>
-              </div>
-            ))}
           </div>
-        </div>
-      )}
+        );
 
-      {/* ---- Movimientos individuales: para poder abrir el detalle de
-           uno puntual, no solo ver el total por categoría ---- */}
-      {movimientos.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
-            <button onClick={exportarCSV} className="flex items-center gap-1 text-xs font-medium text-accent">
-              <Download size={12} /> Exportar CSV
-            </button>
-          </div>
-          <div className="max-h-96 space-y-1.5 overflow-y-auto rounded-xl bg-surface p-2 shadow-card">
-            {movimientos.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setMovimientoAbierto(m);
-                  setComprobanteUrlDetalle(null);
-                }}
-                className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left active:bg-base"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm text-ink">{etiquetaCategoria(m.categoria)}</span>
-                    {m.comprobante_url && <Paperclip size={12} className="shrink-0 text-muted" />}
+        const seccionTopVendidos = (topProductos.length > 0 || topServicios.length > 0) && (
+          <div key="top-vendidos" className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Lo más vendido</p>
+            <div className="space-y-1.5 rounded-xl bg-surface p-2 shadow-card">
+              {topProductos.map((p, i) => (
+                <div key={`prod-${p.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    {i === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
+                    <span className="text-sm text-ink">{p.nombre}</span>
                   </div>
-                  <p className="truncate text-xs text-muted">
-                    {new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', day: '2-digit', month: '2-digit' }).format(
-                      new Date(m.fecha)
-                    )}
-                    {m.notas ? ` · ${m.notas}` : ''}
-                  </p>
+                  <span className="shrink-0 font-mono text-xs text-muted">{p.cantidad} vendidos</span>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <span className={`font-mono text-sm ${m.tipo === 'ingreso' ? 'text-accent' : 'text-danger'}`}>
-                    {m.tipo === 'ingreso' ? '+' : '−'} Gs. {Number(m.monto).toLocaleString('es-PY')}
-                  </span>
-                  <ChevronRight size={14} className="text-muted" />
+              ))}
+              {topServicios.map((s, i) => (
+                <div key={`serv-${s.nombre}`} className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    {i === 0 && topProductos.length === 0 && <Trophy size={14} className="shrink-0 text-amber" />}
+                    <span className="text-sm text-ink">{s.nombre}</span>
+                  </div>
+                  <span className="shrink-0 font-mono text-xs text-muted">{s.cantidad} turnos</span>
                 </div>
-              </button>
-            ))}
+              ))}
+            </div>
           </div>
+        );
+
+        const seccionMovimientos = movimientos.length > 0 && (
+          <div key="movimientos" className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
+                {esEscritorio && filtroCategoria && (
+                  <button
+                    onClick={() => setFiltroCategoria(null)}
+                    className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent"
+                  >
+                    {etiquetaCategoria(filtroCategoria.categoria)} <X size={10} />
+                  </button>
+                )}
+              </div>
+              <button onClick={exportarCSV} className="flex items-center gap-1 text-xs font-medium text-accent">
+                <Download size={12} /> Exportar CSV
+              </button>
+            </div>
+
+            {esEscritorio && movimientosFiltrados.length === 0 && (
+              <p className="pt-2 text-center text-xs text-muted">Ningún movimiento con ese filtro.</p>
+            )}
+
+            {!esEscritorio && (
+              <div className="max-h-96 space-y-1.5 overflow-y-auto rounded-xl bg-surface p-2 shadow-card">
+                {movimientosFiltrados.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMovimientoAbierto(m);
+                      setComprobanteUrlDetalle(null);
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left active:bg-base"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm text-ink">{etiquetaCategoria(m.categoria)}</span>
+                        {m.comprobante_url && <Paperclip size={12} className="shrink-0 text-muted" />}
+                      </div>
+                      <p className="truncate text-xs text-muted">
+                        {new Intl.DateTimeFormat('es-PY', {
+                          timeZone: 'America/Asuncion',
+                          day: '2-digit',
+                          month: '2-digit',
+                        }).format(new Date(m.fecha))}
+                        {m.notas ? ` · ${m.notas}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className={`font-mono text-sm ${m.tipo === 'ingreso' ? 'text-accent' : 'text-danger'}`}>
+                        {m.tipo === 'ingreso' ? '+' : '−'} Gs. {Number(m.monto).toLocaleString('es-PY')}
+                      </span>
+                      <ChevronRight size={14} className="text-muted" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {esEscritorio && movimientosFiltrados.length > 0 && (
+              <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-xs font-medium uppercase tracking-wide text-muted">
+                      <th className="px-4 py-3">Fecha</th>
+                      <th className="px-4 py-3">Categoría</th>
+                      <th className="px-4 py-3">Notas</th>
+                      <th className="px-4 py-3 text-right">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {movimientosFiltrados.map((m) => (
+                      <tr
+                        key={m.id}
+                        onClick={() => {
+                          setMovimientoAbierto(m);
+                          setComprobanteUrlDetalle(null);
+                        }}
+                        className="cursor-pointer hover:bg-surface2"
+                      >
+                      <td className="px-4 py-3 text-muted">
+                        {new Intl.DateTimeFormat('es-PY', {
+                          timeZone: 'America/Asuncion',
+                          day: '2-digit',
+                          month: '2-digit',
+                        }).format(new Date(m.fecha))}
+                      </td>
+                      <td className="px-4 py-3 text-ink">
+                        <div className="flex items-center gap-1.5">
+                          {etiquetaCategoria(m.categoria)}
+                          {m.comprobante_url && <Paperclip size={12} className="shrink-0 text-muted" />}
+                        </div>
+                      </td>
+                      <td className="max-w-xs truncate px-4 py-3 text-muted">{m.notas || '—'}</td>
+                      <td className="px-4 py-3 text-right font-mono">
+                        <span className={m.tipo === 'ingreso' ? 'text-accent' : 'text-danger'}>
+                          {m.tipo === 'ingreso' ? '+' : '−'} Gs. {Number(m.monto).toLocaleString('es-PY')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      )}
+      );
+
+      return (
+        <>
+          {!esEscritorio && (
+            <div className="space-y-4">
+              {seccionProyectado}
+              {seccionBotonCargar}
+              {seccionGastosFijosComponente}
+              {seccionGastosFijosDelMes}
+              {seccionCargandoOVacio}
+              {seccionCategorias}
+              {seccionTopVendidos}
+              {seccionMovimientos}
+            </div>
+          )}
+
+          {esEscritorio && (
+            <div className="grid items-start gap-6" style={{ gridTemplateColumns: '1fr 340px' }}>
+              <div className="space-y-4">
+                {seccionCargandoOVacio}
+                {seccionCategorias}
+                {seccionDesglosePagos}
+                {seccionMovimientos}
+              </div>
+              {/* Columna fija: no baja con el resto mientras la tabla de
+                  Movimientos es más alta que la pantalla. */}
+              <div className="space-y-4" style={{ position: 'sticky', top: '1rem' }}>
+                {seccionProyectado}
+                {seccionBotonCargar}
+                {seccionGastosFijosComponente}
+                {seccionGastosFijosDelMes}
+                {seccionTopVendidos}
+              </div>
+            </div>
+          )}
+        </>
+      );
+      })()}
 
       {vistaForm && (
         <div
@@ -821,6 +1136,7 @@ export default function Finanzas() {
                 placeholder="Monto (Gs.)"
                 value={montoNuevo}
                 onChange={(e) => setMontoNuevo(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
 

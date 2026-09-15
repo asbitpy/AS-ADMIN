@@ -9,6 +9,38 @@ está el contenido y el comportamiento, que es lo que hay que tener
 resuelto **antes** de diseñar, para no maquetar pantallas lindas que no
 sirven para trabajar.
 
+> **Nota (2026-09-14):** este documento se escribió cuando varias
+> pantallas todavía no existían. Hoy ya están construidas (mobile-only):
+> Ventas, Clientes, Caja (como barra dentro de Vender), Finanzas, Equipo
+> (sin jornadas/fichaje/comisiones todavía) y Configuración. Lo que
+> sigue sin existir ni en celular ni en escritorio: **Conversaciones**
+> como bandeja propia (hoy es un historial dentro de una alerta),
+> **Inventario** como pantalla propia (los movimientos se guardan pero
+> no se listan en ningún lado) y toda la sección de **Jornadas /
+> Fichaje / Comisiones**. La sección 5 (más abajo) refleja el estado
+> real actualizado.
+
+---
+
+## 0. La decisión de hoy (2026-09-14)
+
+Arturo revisó la versión celular actual y la dio por buena: **queda
+tal cual está, no se achica ni se saca nada de ahí.** Lo que se
+construye ahora es la versión de escritorio, sobre las bases de este
+documento (secciones 1 a 9, que ya estaban bien pensadas antes de
+tener uso real).
+
+Regla concreta:
+- **`< 1280px` (celular y tablet):** exactamente el panel de hoy, sin
+  ningún cambio. La navegación de pestañas abajo sigue siendo la única.
+- **`≥ 1280px` (escritorio):** aparece la barra lateral de la sección 4,
+  con más espacio y más detalle por pantalla — tablas en vez de
+  tarjetas, más columnas, atajos de teclado. No es una app aparte: es
+  el mismo código, mismos componentes de datos, layout distinto.
+- **Primera pantalla candidata a llevarse más detalle a escritorio:
+  Clientes** (hoy en celular es una lista simple; en escritorio pasa a
+  tabla con filtros, como ya describe la sección 6.8).
+
 ---
 
 ## 1. El problema con lo que hay hoy
@@ -22,15 +54,17 @@ parada en un mostrador, con un lector de código de barras, cobrando**.
 Nadie cobra 40 ventas por día con el pulgar en un teléfono. Se cobra
 con las dos manos, mirando una pantalla grande, sin soltar el lector.
 
-Además hay tres pantallas que directamente no existen:
+Además hay pantallas que todavía no existen (ver la nota de arriba —
+esta lista está desactualizada, se mantiene por contexto histórico):
 
 | Falta | Consecuencia hoy |
 |---|---|
-| **Ventas** (historial) | Se cobra, pero no se puede ver una venta pasada, ni anularla, ni hacer una devolución |
-| **Clientes** | Los clientes se crean solos desde el bot y desde el POS, pero nadie puede verlos ni buscarlos |
-| **Conversaciones** | Cuando el bot deriva a un humano, el panel solo abre WhatsApp: se pierde el historial que el sistema ya guarda en `mensajes` |
+| ~~**Ventas** (historial)~~ | Ya existe (`Ventas.jsx`) |
+| ~~**Clientes**~~ | Ya existe (`Clientes.jsx`) |
+| **Conversaciones** (bandeja propia) | Sigue sin existir: hay un historial dentro de cada alerta, no una bandeja para ver todo junto |
 
-O sea: la base de datos ya guarda cosas que ninguna pantalla muestra.
+O sea: la base de datos ya guarda cosas que ninguna pantalla muestra
+todavía del todo (conversaciones, movimientos de inventario detallados).
 
 ---
 
@@ -141,21 +175,21 @@ pregunta que más veces por día se hace quien está en el mostrador.
 
 ## 5. Inventario de pantallas
 
-| # | Pantalla | Hoy | Prioridad |
-|---|---|---|---|
-| 1 | Acceso | Existe, mínima | Media |
-| 2 | Inicio | Existe como "Hoy" | Alta |
-| 3 | Agenda | Existe como "Turnos" | Alta |
-| 4 | **Vender (POS)** | Existe, pensada para celular | **Máxima** |
-| 5 | Ventas (historial) | **No existe** | **Máxima** |
-| 6 | Productos | Existe | Alta |
-| 7 | Inventario | **No existe** | Media |
-| 8 | Clientes | **No existe** | Alta |
-| 9 | Conversaciones | **No existe** | Alta |
-| 10 | Caja | Existe como barra dentro de Vender | Alta |
-| 11 | Finanzas | **No existe** | Media |
-| 12 | **Equipo** | **No existe** | Alta |
-| 13 | Configuración | Existe | Media |
+| # | Pantalla | Hoy (celular) | En escritorio | Prioridad escritorio |
+|---|---|---|---|---|
+| 1 | Acceso | Existe, mínima | Sin diseñar | Baja |
+| 2 | Inicio | Existe como "Hoy" / "HoyRetail" | Sin diseñar | Media |
+| 3 | Agenda | Existe como "Turnos" | Sin diseñar | Media |
+| 4 | **Vender (POS)** | Existe, pensada para celular | Sin diseñar | **Máxima** (pantalla estrella del mostrador) |
+| 5 | Ventas (historial) | Existe | Sin diseñar | Alta |
+| 6 | Productos | Existe | Sin diseñar | Alta (tabla con 200+ productos) |
+| 7 | Inventario (movimientos) | **No existe todavía** | — | Media |
+| 8 | Clientes | Existe, simple | **Primer candidato (decisión de hoy)** | **Máxima** |
+| 9 | Conversaciones (bandeja) | **No existe todavía** (hay historial por alerta) | — | Alta |
+| 10 | Caja | Existe como barra dentro de Vender (`CajaBar.jsx`) | Sin diseñar | Media |
+| 11 | Finanzas | Existe, bastante completa | Sin diseñar | Media |
+| 12 | Equipo | Existe (roles base); sin jornadas/fichaje/comisiones | Sin diseñar | Media |
+| 13 | Configuración | Existe | Sin diseñar | Baja |
 
 ---
 
@@ -572,17 +606,27 @@ gente dos veces.
 
 ## 8. Orden sugerido de construcción
 
-1. **Vender (POS) de escritorio** con teclado y lector — es lo que
-   decide si el sistema se usa
-2. **Ventas (historial)** — hoy se cobra a ciegas
-3. **Equipo**: usuarios, roles y permisos — sin esto no se puede
-   delegar el mostrador
-4. **Caja** como pantalla propia
-5. **Conversaciones** — el diferencial que hoy está desperdiciado
-6. **Clientes**
-7. Agenda semanal de escritorio
-8. Inventario y Finanzas
-9. Jornadas, fichaje y comisiones
+Actualizado (2026-09-14): Equipo (roles base), Ventas, Caja y Finanzas
+ya existen en celular — lo que falta para todas ellas es **la versión
+de escritorio**, no construirlas de cero. El orden por eso cambia:
+
+1. **Shell de escritorio**: barra lateral (sección 4) + punto de quiebre
+   `1280px`, sin tocar nada por debajo de eso — la base sobre la que se
+   apoya todo lo demás
+2. **Clientes de escritorio** — decidido hoy como pantalla piloto: ya
+   existe en celular, el salto a tabla+ficha es más chico que el de
+   Vender, y sirve para validar el sistema de escritorio con algo de
+   riesgo bajo antes de meterse con la pantalla más exigente
+3. **Vender (POS) de escritorio** con teclado y lector — la que más
+   decide si el sistema se usa de verdad en el mostrador
+4. **Ventas (historial) de escritorio** — tabla densa con filtros
+5. **Equipo de escritorio** + recién ahí sumar Jornadas, Fichaje y
+   Comisiones (no existen ni en celular todavía)
+6. **Conversaciones** como bandeja propia — el diferencial que hoy
+   está desperdiciado
+7. **Caja** como pantalla propia de escritorio
+8. Agenda semanal de escritorio
+9. Inventario (pantalla nueva) y Finanzas de escritorio
 
 ---
 

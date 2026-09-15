@@ -227,6 +227,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
                 placeholder="Monto inicial (Gs.)"
                 value={montoInicial}
                 onChange={(e) => setMontoInicial(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
               {error && <p className="text-sm text-danger">{error}</p>}
@@ -268,6 +269,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
                 placeholder="Monto (Gs.)"
                 value={gastoMonto}
                 onChange={(e) => setGastoMonto(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
               <input
@@ -322,6 +324,7 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
                 placeholder="Monto real contado (Gs.)"
                 value={montoReal}
                 onChange={(e) => setMontoReal(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
               />
 

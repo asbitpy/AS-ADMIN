@@ -485,6 +485,7 @@ export default function Venta() {
                     placeholder="Gs."
                     value={p.monto}
                     onChange={(e) => cambiarMontoPago(p.id, e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="w-28 rounded-lg border border-line bg-base px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-accent"
                   />
                   <button

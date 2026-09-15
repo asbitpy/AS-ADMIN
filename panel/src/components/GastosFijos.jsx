@@ -144,6 +144,7 @@ export default function GastosFijos({ negocioId, onCambio }) {
                   placeholder="Gs."
                   value={monto}
                   onChange={(e) => setMonto(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
                   className="w-28 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
                 />
                 <input

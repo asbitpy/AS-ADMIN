@@ -19,6 +19,7 @@ export default function VarianteRow({ variante, onChange, onQuitar, soloStock = 
             type="number"
             value={variante.stock}
             onChange={(e) => set('stock', e.target.value)}
+            onWheel={(e) => e.currentTarget.blur()}
             className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-right text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
           />
           <button type="button" onClick={onQuitar} className="text-muted active:text-danger">
@@ -48,6 +49,7 @@ export default function VarianteRow({ variante, onChange, onQuitar, soloStock = 
         placeholder="Stock"
         value={variante.stock}
         onChange={(e) => set('stock', e.target.value)}
+        onWheel={(e) => e.currentTarget.blur()}
         className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
       />
       <button type="button" onClick={onQuitar} className="text-muted active:text-danger">
