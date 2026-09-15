@@ -8,6 +8,18 @@
  * real de asbit.com.py — verde/ámbar/rojo de estado también existen ahí
  * (badge-green/amber/red), no son inventados para este panel.
  */
+// El acento (celeste por defecto) es elegible por negocio desde
+// Configuración → Apariencia (ver panel/src/lib/temaAccent.js). Por eso
+// no es un hex fijo: se guarda como triplete RGB en una variable CSS
+// (--accent-rgb) para que Tailwind pueda seguir generando bg-accent/20,
+// ring-accent, etc. con opacidad — un color de acento fijo en el config
+// no puede hacer eso. soft/hover/ink si son variables CSS simples,
+// también seteadas en tiempo real por aplicarAccent().
+function conOpacidad(variable) {
+  return ({ opacityValue }) =>
+    opacityValue === undefined ? `rgb(var(${variable}))` : `rgb(var(${variable}) / ${opacityValue})`;
+}
+
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
@@ -19,10 +31,10 @@ export default {
         surface2: '#0A1035', // variante: insets, steppers, filas dentro de una tarjeta
         line: 'rgba(255, 255, 255, 0.08)', // divisores sutiles
         accent: {
-          DEFAULT: '#00B8FF', // celeste — acción principal, links, precios
-          soft: 'rgba(0, 184, 255, 0.1)',
-          hover: '#19C4FF', // hover real de asbit.com.py
-          ink: '#040B1E', // texto oscuro para usar SOBRE fondo celeste (blanco no contrasta ahí)
+          DEFAULT: conOpacidad('--accent-rgb'), // celeste por defecto — acción principal, links, precios
+          soft: 'var(--accent-soft)',
+          hover: 'var(--accent-hover)',
+          ink: 'var(--accent-ink)', // texto a usar SOBRE fondo de acento (blanco no contrasta con el celeste)
         },
         brand: {
           DEFAULT: '#7F3AEF', // morado — puntual, una sola acción por pantalla

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { aplicarAccent, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
 const AuthContext = createContext(null);
 
@@ -74,6 +75,20 @@ export function AuthProvider({ children }) {
     };
   }, [session]);
 
+  // Se reaplica solo si cambia el color elegido, no en cada render —
+  // apenas se conoce el negocio (login) y cada vez que Configuración
+  // guarda uno nuevo (vía actualizarConfigLocal, más abajo).
+  useEffect(() => {
+    aplicarAccent(negocio?.config?.color_acento || ACCENT_POR_DEFECTO);
+  }, [negocio?.config?.color_acento]);
+
+  // Para pantallas que ya guardaron un cambio en negocios.config y
+  // quieren que el panel lo refleje ya mismo, sin esperar a un reload
+  // ni releer todo 'negocio' de nuevo.
+  function actualizarConfigLocal(parcial) {
+    setNegocio((prev) => (prev ? { ...prev, config: { ...prev.config, ...parcial } } : prev));
+  }
+
   const signIn = (email, password) =>
     supabase.auth.signInWithPassword({ email, password });
 
@@ -85,7 +100,9 @@ export function AuthProvider({ children }) {
   const esDueno = rol === 'dueno';
 
   return (
-    <AuthContext.Provider value={{ session, negocio, usuario, rol, esDueno, cargando, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ session, negocio, usuario, rol, esDueno, cargando, signIn, signOut, actualizarConfigLocal }}
+    >
       {children}
     </AuthContext.Provider>
   );

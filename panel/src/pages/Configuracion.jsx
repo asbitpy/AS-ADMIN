@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import HorariosAtencion from '../components/HorariosAtencion';
+import { PALETA_ACCENT, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
 export default function Configuracion() {
-  const { negocio } = useAuth();
+  const { negocio, actualizarConfigLocal } = useAuth();
+  const [guardandoColor, setGuardandoColor] = useState(false);
   const [servicios, setServicios] = useState([]);
   const [profesionales, setProfesionales] = useState([]);
   const [feriados, setFeriados] = useState([]);
@@ -19,6 +21,7 @@ export default function Configuracion() {
 
   const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
   const tieneAgenda = (negocio?.modulos_activos || []).includes('agenda');
+  const colorAcentoActual = negocio?.config?.color_acento || ACCENT_POR_DEFECTO;
 
   useEffect(() => {
     if (!negocio) return;
@@ -46,6 +49,30 @@ export default function Configuracion() {
     setGuardandoSitio(true);
     await supabase.from('negocios').update({ sitio_web_url: sitioWeb || null }).eq('id', negocio.id);
     setGuardandoSitio(false);
+  }
+
+  async function elegirColorAcento(id) {
+    if (id === colorAcentoActual || guardandoColor) return;
+    setGuardandoColor(true);
+
+    // Mismo cuidado que en horarios: releer config fresco antes de
+    // escribir, para no pisar otra clave (telefono_dueno, horarios...)
+    // si cambió por otro lado mientras tanto.
+    const { data: fresco, error: errFetch } = await supabase
+      .from('negocios')
+      .select('config')
+      .eq('id', negocio.id)
+      .single();
+
+    if (!errFetch) {
+      const { error: errUpdate } = await supabase
+        .from('negocios')
+        .update({ config: { ...(fresco.config || {}), color_acento: id } })
+        .eq('id', negocio.id);
+      if (!errUpdate) actualizarConfigLocal({ color_acento: id });
+    }
+
+    setGuardandoColor(false);
   }
 
   async function agregarServicio(e) {
@@ -120,6 +147,41 @@ export default function Configuracion() {
               <HorariosAtencion negocioId={negocio.id} configActual={negocio.config} />
             </div>
           )}
+        </div>
+      </section>
+
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Apariencia</p>
+        <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs text-muted">
+            El color de acento se usa en botones, precios y la pestaña activa de todo el panel.
+          </p>
+          <div className="mt-3 flex gap-3">
+            {PALETA_ACCENT.map((c) => {
+              const seleccionado = c.id === colorAcentoActual;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => elegirColorAcento(c.id)}
+                  disabled={guardandoColor}
+                  title={c.nombre}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <span
+                    className="flex h-9 w-9 items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface disabled:opacity-60"
+                    style={{
+                      backgroundColor: `rgb(${c.rgb})`,
+                      '--tw-ring-color': seleccionado ? `rgb(${c.rgb})` : 'transparent',
+                    }}
+                  >
+                    {seleccionado && <Check size={16} color={c.ink} strokeWidth={3} />}
+                  </span>
+                  <span className="text-[10px] text-muted">{c.nombre}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 

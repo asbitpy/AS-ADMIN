@@ -74,7 +74,8 @@ Pendiente para cerrar la Fase 1:
 - [x] Historial completo de conversación al tocar una alerta (`HistorialConversacion.jsx`) — WhatsApp sigue siendo el botón para responder, pero ya no hay que abrirlo a ciegas para saber de qué se trata
 - [x] Editar horarios de atención desde la UI (`HorariosAtencion.jsx`, en Configuración) — mismo formato que ya lee el motor de disponibilidad del bot
 - [x] Selector de profesional para clínicas con más de uno — ABM en Configuración; con 2+ profesionales activos el bot pregunta "¿con quién preferís?" (o "el primero disponible") antes de mostrar franjas; `agenda.js` ahora filtra ocupados por profesional, no solo por negocio. De paso se corrigió un bug real: al reprogramar, el contexto de la conversación se pisaba solo y perdía qué turno se estaba reprogramando
-- [x] Probar el flujo de empleado de punta a punta: cuenta de prueba en Supabase Auth, agregada desde Equipo con rol Cajero, logueada y confirmado que la barra de navegación y las rutas respetan el rol (sin Finanzas/Equipo/Config)
+- [x] Probar el flujo de empleado de punta a punta: cuenta de prueba en Supabase Auth, agregada desde Equipo con rol Cajero, logueada y confirmado que la barra de navegación y las rutas respetan el rol (sin Finanzas/Equipo/Config) — **queda pendiente decidir si se borra o se deja esa cuenta de prueba**
+- [x] Personalización de color: Configuración → Apariencia, 5 colores de acento a elegir (curados, no selector libre) — se guarda en `negocios.config.color_acento` y se aplica al instante en todo el panel vía variables CSS (`panel/src/lib/temaAccent.js`)
 
 ## 5. Desarrollo — Finanzas
 
@@ -116,6 +117,8 @@ Pendiente para cerrar la Fase 1:
 - [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc.)
 - [ ] Material de venta con las métricas reales del piloto para salir a buscar los clientes 2-5
 - [ ] Manual de uso del panel para el dueño/equipo — descargable o como link directo (explícitamente pausado hasta terminar el resto del producto)
+- [ ] Mini link/botón dentro del panel ("¿Problemas técnicos?") que comunique directo con AS BIT — pausado para el final, junto con el manual
+- [ ] La "Página de AS ADMIN dentro del sitio de AS BIT" (línea de arriba) cubre también el pedido de una página para promocionar el sistema — mismo ítem, sin duplicar
 
 ## 9. Operación continua
 

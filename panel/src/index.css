@@ -3,6 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  /* Valores por defecto (celeste) — aplicarAccent() los pisa en tiempo
+     real apenas se conoce el negocio logueado, para el color que haya
+     elegido en Configuración → Apariencia. */
+  :root {
+    --accent-rgb: 0 184 255;
+    --accent-soft: rgba(0, 184, 255, 0.1);
+    --accent-hover: #19c4ff;
+    --accent-ink: #040b1e;
+  }
   ::selection {
     @apply bg-accent/20;
   }
