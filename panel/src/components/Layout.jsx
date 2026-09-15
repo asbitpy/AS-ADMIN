@@ -11,6 +11,8 @@ import {
   UserCog,
   LogOut,
   Wallet,
+  Truck,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
@@ -80,6 +82,20 @@ export default function Layout() {
     { id: 'administrar', titulo: 'Administrar' },
   ];
 
+  // Proveedores y Compras son pantallas nuevas, solo de escritorio (ver
+  // feedback-asadmin-movil-congelado): a propósito NO se agregan al
+  // array 'tabs' de arriba, que también alimenta la navegación de
+  // celular — viven solo acá, en lo que se pinta dentro de <aside>.
+  const enlacesSoloEscritorio = {
+    vender:
+      tieneRetail && puedeConfigurar
+        ? [
+            { to: '/proveedores', label: 'Proveedores', icon: Truck },
+            { to: '/compras', label: 'Compras', icon: ClipboardList },
+          ]
+        : [],
+  };
+
   return (
     <div className="flex min-h-screen bg-base">
       {/* Barra lateral — desde 1280px reales, o forzada en desarrollo
@@ -104,7 +120,7 @@ export default function Layout() {
             ))}
 
           {GRUPOS.map((g) => {
-            const items = tabs.filter((t) => t.grupo === g.id);
+            const items = [...tabs.filter((t) => t.grupo === g.id), ...(enlacesSoloEscritorio[g.id] || [])];
             if (items.length === 0) return null;
             return (
               <div key={g.id}>

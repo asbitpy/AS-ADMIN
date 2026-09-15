@@ -12,9 +12,13 @@ import Clientes from './pages/Clientes';
 import Equipo from './pages/Equipo';
 import Finanzas from './pages/Finanzas';
 import Configuracion from './pages/Configuracion';
+import Proveedores from './pages/Proveedores';
+import Compras from './pages/Compras';
+import { useEsEscritorio } from './hooks/useEsEscritorio';
 
 export default function App() {
   const { session, negocio, cargando, esDueno, rol } = useAuth();
+  const { esEscritorio } = useEsEscritorio();
 
   if (cargando) {
     return (
@@ -62,6 +66,12 @@ export default function App() {
         {puedeConfigurar && <Route path="/finanzas" element={<Finanzas />} />}
         {esDueno && <Route path="/equipo" element={<Equipo />} />}
         {puedeConfigurar && <Route path="/configuracion" element={<Configuracion />} />}
+        {/* Proveedores y Compras: pantallas nuevas, solo escritorio (ver
+            feedback-asadmin-movil-congelado) — existía la tabla desde
+            hace tiempo, nunca la pantalla. Mismo nivel de acceso que
+            Finanzas: decisión de gerencia, no de mostrador. */}
+        {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/proveedores" element={<Proveedores />} />}
+        {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/compras" element={<Compras />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

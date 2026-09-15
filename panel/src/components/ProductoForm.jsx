@@ -3,11 +3,13 @@ import { Plus, X, Camera, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { subirFotoProducto } from '../lib/storage';
 import { useAuth } from '../context/AuthContext';
+import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import VarianteRow from './VarianteRow';
 
 const VACIO = {
   nombre: '',
   categoria_id: '',
+  proveedor_id: '',
   marca: '',
   descripcion: '',
   costo: '',
@@ -23,8 +25,10 @@ const VACIO = {
 
 export default function ProductoForm({ productoExistente, onGuardado, onCancelar }) {
   const { negocio } = useAuth();
+  const { esEscritorio } = useEsEscritorio();
   const [datos, setDatos] = useState(VACIO);
   const [categorias, setCategorias] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
   const [nuevaCategoria, setNuevaCategoria] = useState('');
   const [variantesExistentes, setVariantesExistentes] = useState([]);
   const [variantesNuevas, setVariantesNuevas] = useState([]);
@@ -47,10 +51,12 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
 
   useEffect(() => {
     cargarCategorias();
+    if (esEscritorio) cargarProveedores();
     if (productoExistente) {
       setDatos({
         nombre: productoExistente.nombre || '',
         categoria_id: productoExistente.categoria_id || '',
+        proveedor_id: productoExistente.proveedor_id || '',
         marca: productoExistente.marca || '',
         descripcion: productoExistente.descripcion || '',
         costo: productoExistente.costo ?? '',
@@ -74,6 +80,20 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
       .eq('negocio_id', negocio.id)
       .order('nombre');
     setCategorias(data || []);
+  }
+
+  // Solo escritorio (ver feedback-asadmin-movil-congelado): "de qué
+  // proveedor viene esto" es la conexión con la pantalla nueva de
+  // Proveedores — no existía ningún selector para productos.proveedor_id
+  // pese a que la columna está desde la migración 004.
+  async function cargarProveedores() {
+    const { data } = await supabase
+      .from('proveedores')
+      .select('id, nombre')
+      .eq('negocio_id', negocio.id)
+      .eq('activo', true)
+      .order('nombre');
+    setProveedores(data || []);
   }
 
   async function cargarVariantes(productoId) {
@@ -133,6 +153,7 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
         negocio_id: negocio.id,
         nombre: datos.nombre.trim(),
         categoria_id: datos.categoria_id || null,
+        proveedor_id: datos.proveedor_id || null,
         marca: datos.marca || null,
         descripcion: datos.descripcion || null,
         costo: datos.costo ? Number(datos.costo) : null,
@@ -301,6 +322,27 @@ export default function ProductoForm({ productoExistente, onGuardado, onCancelar
           Crear
         </button>
       </div>
+
+      {esEscritorio && (
+        <div>
+          <label className="text-xs text-muted">Proveedor (opcional)</label>
+          <select
+            value={datos.proveedor_id}
+            onChange={(e) => setDatos({ ...datos, proveedor_id: e.target.value })}
+            className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value="">Sin proveedor asignado</option>
+            {proveedores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+          {proveedores.length === 0 && (
+            <p className="mt-1 text-[11px] text-muted">Todavía no cargaste ningún proveedor en Proveedores.</p>
+          )}
+        </div>
+      )}
 
       <input
         placeholder="Marca (opcional)"
