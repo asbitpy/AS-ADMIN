@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   CalendarHeart,
@@ -32,6 +33,23 @@ export default function Layout() {
   // Config toca datos del negocio (horarios, precios, módulos): solo
   // para quien puede tomar esas decisiones. Un cajero o vendedor no la ve.
   const puedeConfigurar = rol === 'dueno' || rol === 'gerente';
+
+  // Estirar el diseño de celular a una pantalla grande sin más queda
+  // "una columna flaca en un mar de negro" — todo se ve chico porque el
+  // tamaño base de Tailwind (rem) sigue pensado para un teléfono. Se
+  // sube el font-size raíz del documento: como el texto Y los
+  // espaciados de Tailwind son rem, todo escala junto. Este efecto vive
+  // ACÁ (Layout no se desmonta al navegar entre pantallas) y en ningún
+  // otro lado — tenerlo también en useEsEscritorio.js hacía que cada
+  // pantalla, al montarse/desmontarse en cada navegación, reseteara y
+  // volviera a poner el tamaño, y eso se veía como que la pantalla
+  // "saltaba" de tamaño cada vez que se tocaba un panel distinto.
+  useEffect(() => {
+    document.documentElement.style.fontSize = esEscritorio ? '20px' : '';
+    return () => {
+      document.documentElement.style.fontSize = '';
+    };
+  }, [esEscritorio]);
 
   // 'grupo' solo lo usa la barra lateral de escritorio (sección 4 de
   // AS_ADMIN_pantallas_y_escritorio_v1.md) para separar visualmente
