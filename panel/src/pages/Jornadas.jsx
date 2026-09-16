@@ -99,7 +99,7 @@ export default function Jornadas() {
   )}`;
 
   const filas = [
-    { id: 'dueno', nombre: 'Vos', authId: negocio?.auth_user_id, horario: negocio?.config?.horarios || {} },
+    { id: 'dueno', nombre: negocio?.nombre_dueno || 'Vos', authId: negocio?.auth_user_id, horario: negocio?.config?.horarios || {} },
     ...usuarios.map((u) => ({ id: u.id, nombre: u.nombre, authId: u.auth_user_id, horario: u.horario || {} })),
   ];
 

@@ -64,7 +64,7 @@ export default function Caja() {
 
   function nombreDe(authUserId) {
     if (!authUserId) return 'Sin asignar';
-    if (authUserId === negocio.auth_user_id) return 'Vos';
+    if (authUserId === negocio.auth_user_id) return negocio.nombre_dueno || 'Vos';
     return nombresUsuarios[authUserId] || 'Ex-empleado';
   }
 

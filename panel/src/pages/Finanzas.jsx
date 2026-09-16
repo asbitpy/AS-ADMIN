@@ -195,7 +195,7 @@ export default function Finanzas() {
 
   function nombreDeUsuario(authUserId) {
     if (!authUserId) return 'Sin registrar';
-    if (authUserId === negocio.auth_user_id) return 'Vos';
+    if (authUserId === negocio.auth_user_id) return negocio.nombre_dueno || 'Vos';
     return nombresUsuarios[authUserId] || 'Ex-empleado';
   }
 

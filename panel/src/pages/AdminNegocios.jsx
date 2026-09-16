@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Building2, LogOut, Plus, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { crearCuentaAuth } from '../lib/backend';
+import { crearCuentaAuth, resetearPassword } from '../lib/backend';
 
 // Herramienta interna de AS BIT, no un panel de negocio — vive fuera del
 // Layout de siempre (sin barra lateral, sin depender de 'negocio') y
@@ -173,9 +173,25 @@ function EditarNegocioModal({ negocio, onCerrar, onGuardado }) {
   const [activo, setActivo] = useState(negocio.activo);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
+  const [confirmarReset, setConfirmarReset] = useState(false);
+  const [reseteando, setReseteando] = useState(false);
+  const [passwordNueva, setPasswordNueva] = useState(null);
 
   function toggleModulo(id) {
     setModulos((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+  }
+
+  async function resetearPasswordDueno() {
+    setReseteando(true);
+    try {
+      const { password } = await resetearPassword({ authUserId: negocio.auth_user_id });
+      setPasswordNueva(password);
+      setConfirmarReset(false);
+    } catch (err) {
+      setError(err.message || 'No se pudo resetear la contraseña.');
+    } finally {
+      setReseteando(false);
+    }
   }
 
   async function guardar() {
@@ -247,6 +263,48 @@ function EditarNegocioModal({ negocio, onCerrar, onGuardado }) {
             Negocio activo
           </label>
 
+          <div className="rounded-xl bg-base p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Acceso del dueño</p>
+            {passwordNueva ? (
+              <>
+                <p className="mt-2 text-xs text-muted">
+                  Nueva contraseña generada — pasásela ahora, no se vuelve a mostrar:
+                </p>
+                <p className="mt-1 select-all rounded-lg bg-accent-soft px-3 py-2 font-mono text-lg text-accent">
+                  {passwordNueva}
+                </p>
+                <button type="button" onClick={() => setPasswordNueva(null)} className="mt-2 text-xs font-medium text-accent">
+                  Listo
+                </button>
+              </>
+            ) : confirmarReset ? (
+              <>
+                <p className="mt-2 text-xs text-amber">La contraseña anterior del dueño deja de funcionar. ¿Seguro?</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarReset(false)}
+                    className="flex-1 rounded-lg border border-line py-2 text-xs text-muted"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetearPasswordDueno}
+                    disabled={reseteando}
+                    className="flex-1 rounded-lg bg-accent py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+                  >
+                    {reseteando ? 'Generando…' : 'Sí, generar'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button type="button" onClick={() => setConfirmarReset(true)} className="mt-2 text-xs font-medium text-accent">
+                Generar nueva contraseña (se olvidó la suya)
+              </button>
+            )}
+          </div>
+
           {error && <p className="text-sm text-danger">{error}</p>}
 
           <div className="flex gap-2 pt-2">
@@ -271,6 +329,7 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
   const [nombre, setNombre] = useState('');
   const [rubro, setRubro] = useState('');
   const [email, setEmail] = useState('');
+  const [passwordElegida, setPasswordElegida] = useState('');
   const [telefono, setTelefono] = useState('');
   const [direccion, setDireccion] = useState('');
   const [plan, setPlan] = useState('basico');
@@ -295,12 +354,21 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
       setError('Elegí al menos un módulo.');
       return;
     }
+    if (passwordElegida.trim() && passwordElegida.trim().length < 6) {
+      setError('La contraseña tiene que tener al menos 6 caracteres.');
+      return;
+    }
 
     setGuardando(true);
     try {
       // Reemplaza el paso manual de crear la cuenta del dueño en
-      // Supabase → Authentication → Add user.
-      const { auth_user_id, password } = await crearCuentaAuth({ email: email.trim(), nombre: nombre.trim() });
+      // Supabase → Authentication → Add user. Si no se eligió
+      // contraseña, el backend genera una temporal sola.
+      const { auth_user_id, password } = await crearCuentaAuth({
+        email: email.trim(),
+        nombre: nombre.trim(),
+        password: passwordElegida.trim() || undefined,
+      });
 
       const { error: errInsert } = await supabase.from('negocios').insert({
         nombre: nombre.trim(),
@@ -352,7 +420,7 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
               <p className="select-all font-mono text-sm text-accent">{cuentaCreada.email}</p>
             </div>
             <div>
-              <p className="text-xs text-accent">Contraseña temporal</p>
+              <p className="text-xs text-accent">Contraseña</p>
               <p className="select-all font-mono text-lg text-accent">{cuentaCreada.password}</p>
             </div>
           </div>
@@ -378,8 +446,8 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
         </div>
 
         <p className="mt-3 text-xs text-muted">
-          Se crea la cuenta del dueño sola con el email que cargues acá — te va a quedar una contraseña
-          temporal para pasarle.
+          Se crea la cuenta del dueño sola con el email que cargues acá. Si no le ponés contraseña, se
+          genera una automática que te mostramos al final.
         </p>
 
         <form onSubmit={guardar} className="mt-3 space-y-3">
@@ -400,6 +468,12 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
             placeholder="Email del dueño"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+          />
+          <input
+            placeholder="Contraseña (opcional — se genera una si lo dejás vacío)"
+            value={passwordElegida}
+            onChange={(e) => setPasswordElegida(e.target.value)}
             className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
           />
           <input

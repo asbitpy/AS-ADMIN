@@ -80,7 +80,7 @@ export default function Inventario() {
 
   function nombreDe(authUserId) {
     if (!authUserId) return '—';
-    if (authUserId === negocio.auth_user_id) return 'Vos';
+    if (authUserId === negocio.auth_user_id) return negocio.nombre_dueno || 'Vos';
     return nombresUsuarios[authUserId] || 'Ex-empleado';
   }
 

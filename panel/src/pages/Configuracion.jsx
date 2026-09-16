@@ -18,11 +18,14 @@ export default function Configuracion() {
   const [nuevoProfesional, setNuevoProfesional] = useState('');
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', motivo: '' });
   const [nombre, setNombre] = useState(negocio?.nombre || '');
+  const [nombreDueno, setNombreDueno] = useState(negocio?.nombre_dueno || '');
   const [direccion, setDireccion] = useState(negocio?.direccion || '');
   const [sitioWeb, setSitioWeb] = useState(negocio?.sitio_web_url || '');
   const [telefonoAlertas, setTelefonoAlertas] = useState(negocio?.config?.telefono_dueno || '');
   const [guardando, setGuardando] = useState(false);
+  const [errorDatos, setErrorDatos] = useState(null);
   const [guardandoNombre, setGuardandoNombre] = useState(false);
+  const [guardandoNombreDueno, setGuardandoNombreDueno] = useState(false);
   const [guardandoAlertas, setGuardandoAlertas] = useState(false);
   const [guardandoSitio, setGuardandoSitio] = useState(false);
 
@@ -48,16 +51,43 @@ export default function Configuracion() {
 
   async function guardarDireccion() {
     setGuardando(true);
-    await supabase.from('negocios').update({ direccion }).eq('id', negocio.id);
+    setErrorDatos(null);
+    const { error } = await supabase.from('negocios').update({ direccion }).eq('id', negocio.id);
     setGuardando(false);
+    if (error) setErrorDatos('No se pudo guardar la dirección. Probá de nuevo.');
   }
 
   async function guardarNombre() {
     if (!nombre.trim()) return;
     setGuardandoNombre(true);
+    setErrorDatos(null);
     const { error } = await supabase.from('negocios').update({ nombre: nombre.trim() }).eq('id', negocio.id);
     setGuardandoNombre(false);
-    if (!error) actualizarNegocioLocal({ nombre: nombre.trim() });
+    if (error) setErrorDatos('No se pudo guardar el nombre. Probá de nuevo.');
+    else actualizarNegocioLocal({ nombre: nombre.trim() });
+  }
+
+  // Sin esto, todas las pantallas que muestran "quién hizo esto"
+  // (Ventas, Caja, Inventario, Finanzas, Equipo, Jornadas) muestran
+  // "Vos" en vez del nombre real del dueño — a diferencia de un
+  // empleado, que sí tiene su nombre cargado.
+  async function guardarNombreDueno() {
+    setGuardandoNombreDueno(true);
+    setErrorDatos(null);
+    const valor = nombreDueno.trim() || null;
+    const { error } = await supabase.from('negocios').update({ nombre_dueno: valor }).eq('id', negocio.id);
+    setGuardandoNombreDueno(false);
+    if (error) {
+      // Causa más probable: la migración 030_nombre_dueno.sql (agrega
+      // la columna) todavía no se corrió en Supabase.
+      setErrorDatos(
+        error.code === 'PGRST204' || /column/i.test(error.message || '')
+          ? 'No se pudo guardar — falta correr la migración 030_nombre_dueno.sql en Supabase.'
+          : 'No se pudo guardar tu nombre. Probá de nuevo.'
+      );
+    } else {
+      actualizarNegocioLocal({ nombre_dueno: valor });
+    }
   }
 
   // Mismo cuidado que elegirColorAcento: releer config fresco antes de
@@ -179,6 +209,26 @@ export default function Configuracion() {
             </button>
           </div>
 
+          <label className="mt-3 block text-xs text-muted">Tu nombre (el dueño)</label>
+          <p className="text-[11px] text-muted">
+            Para que las pantallas de quién hizo cada cosa digan tu nombre en vez de "Vos".
+          </p>
+          <div className="mt-1 flex gap-2">
+            <input
+              placeholder="Ej: Arturo"
+              value={nombreDueno}
+              onChange={(e) => setNombreDueno(e.target.value)}
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            <button
+              onClick={guardarNombreDueno}
+              disabled={guardandoNombreDueno}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+            >
+              Guardar
+            </button>
+          </div>
+
           <label className="mt-3 block text-xs text-muted">Dirección</label>
           <div className="mt-1 flex gap-2">
             <input
@@ -200,6 +250,8 @@ export default function Configuracion() {
               <HorariosAtencion negocioId={negocio.id} configActual={negocio.config} />
             </div>
           )}
+
+          {errorDatos && <p className="mt-3 text-xs text-danger">{errorDatos}</p>}
         </div>
       </section>
 

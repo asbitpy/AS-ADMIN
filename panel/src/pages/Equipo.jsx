@@ -3,7 +3,7 @@ import { UserPlus, Crown, X, ChevronRight, ChevronLeft, Plus, Trash2, Wallet, Tr
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
-import { crearCuentaAuth } from '../lib/backend';
+import { crearCuentaAuth, resetearPassword } from '../lib/backend';
 import MetricPill from '../components/MetricPill';
 
 const ROLES = [
@@ -62,6 +62,7 @@ export default function Equipo() {
 
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
+  const [passwordElegida, setPasswordElegida] = useState('');
   const [rol, setRol] = useState('cajero');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
@@ -108,7 +109,7 @@ export default function Equipo() {
       const id = idCrudo || negocio.auth_user_id;
       if (!mapa.has(id)) {
         let nombre = 'Sin asignar';
-        if (id === negocio.auth_user_id) nombre = 'Vos';
+        if (id === negocio.auth_user_id) nombre = negocio.nombre_dueno || 'Vos';
         else {
           const u = listaUsuarios.find((x) => x.auth_user_id === id);
           if (u) nombre = u.nombre;
@@ -141,6 +142,10 @@ export default function Equipo() {
       setError('Falta el email.');
       return;
     }
+    if (passwordElegida.trim() && passwordElegida.trim().length < 6) {
+      setError('La contraseña tiene que tener al menos 6 caracteres.');
+      return;
+    }
 
     guardandoRef.current = true;
     setGuardando(true);
@@ -148,8 +153,13 @@ export default function Equipo() {
     try {
       // El backend crea la cuenta de Supabase Auth (necesita la service
       // key, por eso no se puede hacer directo desde acá) — reemplaza el
-      // paso manual de ir a Supabase → Authentication → Add user.
-      const { auth_user_id, password } = await crearCuentaAuth({ email: email.trim(), nombre: nombre.trim() });
+      // paso manual de ir a Supabase → Authentication → Add user. Si no
+      // se eligió contraseña, el backend genera una temporal sola.
+      const { auth_user_id, password } = await crearCuentaAuth({
+        email: email.trim(),
+        nombre: nombre.trim(),
+        password: passwordElegida.trim() || undefined,
+      });
 
       const { error: errInsert } = await supabase.from('usuarios').insert({
         negocio_id: negocio.id,
@@ -171,6 +181,7 @@ export default function Equipo() {
       setCuentaCreada({ email: email.trim(), password });
       setNombre('');
       setEmail('');
+      setPasswordElegida('');
       setRol('cajero');
       cargar();
     } catch (err) {
@@ -211,6 +222,7 @@ export default function Equipo() {
     setVista('lista');
     setCuentaCreada(null);
     setError(null);
+    setPasswordElegida('');
   }
 
   const formulario = (
@@ -244,7 +256,7 @@ export default function Equipo() {
                 <p className="select-all font-mono text-sm text-accent">{cuentaCreada.email}</p>
               </div>
               <div>
-                <p className="text-xs text-accent">Contraseña temporal</p>
+                <p className="text-xs text-accent">Contraseña</p>
                 <p className="select-all font-mono text-lg text-accent">{cuentaCreada.password}</p>
               </div>
             </div>
@@ -266,8 +278,8 @@ export default function Equipo() {
             </div>
 
             <p className="mt-3 text-xs text-muted">
-              Se crea la cuenta sola con el email que cargues acá — te va a quedar una contraseña
-              temporal para pasarle a la persona.
+              Se crea la cuenta sola con el email que cargues acá. Si no le ponés contraseña, se
+              genera una automática que te mostramos al final.
             </p>
 
             <form onSubmit={agregarUsuario} className="mt-3 space-y-3">
@@ -282,6 +294,12 @@ export default function Equipo() {
                 placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+              />
+              <input
+                placeholder="Contraseña (opcional — se genera una si lo dejás vacío)"
+                value={passwordElegida}
+                onChange={(e) => setPasswordElegida(e.target.value)}
                 className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
               />
 
@@ -366,7 +384,7 @@ export default function Equipo() {
             <Crown size={16} className="text-amber" />
           </span>
           <div>
-            <p className="text-sm font-medium text-ink">Vos</p>
+            <p className="text-sm font-medium text-ink">{negocio?.nombre_dueno || 'Vos'}</p>
             <p className="text-xs text-muted">Dueño — acceso total, no se puede editar acá</p>
           </div>
         </div>
@@ -433,7 +451,7 @@ export default function Equipo() {
                 <tr>
                   <td className="px-4 py-3 font-medium text-ink">
                     <span className="flex items-center gap-1.5">
-                      <Crown size={14} className="text-amber" /> Vos
+                      <Crown size={14} className="text-amber" /> {negocio?.nombre_dueno || 'Vos'}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-muted">Dueño</td>
@@ -608,6 +626,23 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
   const [guardadoOk, setGuardadoOk] = useState(false);
   const [cajas, setCajas] = useState(null);
   const [resumenVentas, setResumenVentas] = useState(null);
+  // Resetear contraseña (por si se olvidó) — solo panel de escritorio.
+  const [confirmarReset, setConfirmarReset] = useState(false);
+  const [reseteando, setReseteando] = useState(false);
+  const [passwordNueva, setPasswordNueva] = useState(null);
+
+  async function resetearPasswordEmpleado() {
+    setReseteando(true);
+    try {
+      const { password } = await resetearPassword({ authUserId: empleado.auth_user_id });
+      setPasswordNueva(password);
+      setConfirmarReset(false);
+    } catch (err) {
+      setError(err.message || 'No se pudo resetear la contraseña.');
+    } finally {
+      setReseteando(false);
+    }
+  }
 
   useEffect(() => {
     if (!tieneRetail) return;
@@ -785,6 +820,54 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
             />
             Puede anular ventas
           </label>
+        </div>
+      )}
+
+      {panel && (
+        <div className="rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Acceso</p>
+          {passwordNueva ? (
+            <>
+              <p className="mt-2 text-xs text-muted">
+                Nueva contraseña generada — pasásela ahora, no se vuelve a mostrar:
+              </p>
+              <p className="mt-1 select-all rounded-lg bg-accent-soft px-3 py-2 font-mono text-lg text-accent">
+                {passwordNueva}
+              </p>
+              <button onClick={() => setPasswordNueva(null)} className="mt-2 text-xs font-medium text-accent">
+                Listo
+              </button>
+            </>
+          ) : confirmarReset ? (
+            <>
+              <p className="mt-2 text-xs text-amber">La contraseña anterior de esta persona deja de funcionar. ¿Seguro?</p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmarReset(false)}
+                  className="flex-1 rounded-lg border border-line py-2 text-xs text-muted"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={resetearPasswordEmpleado}
+                  disabled={reseteando}
+                  className="flex-1 rounded-lg bg-accent py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+                >
+                  {reseteando ? 'Generando…' : 'Sí, generar'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmarReset(true)}
+              className="mt-2 text-xs font-medium text-accent"
+            >
+              Generar nueva contraseña (se olvidó la suya)
+            </button>
+          )}
         </div>
       )}
 

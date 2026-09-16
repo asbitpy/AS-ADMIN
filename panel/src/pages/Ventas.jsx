@@ -115,7 +115,7 @@ export default function Ventas() {
 
   function nombreVendedor(authUserId) {
     if (!authUserId) return 'Sin asignar';
-    if (authUserId === negocio.auth_user_id) return 'Vos';
+    if (authUserId === negocio.auth_user_id) return negocio.nombre_dueno || 'Vos';
     return nombresUsuarios[authUserId] || 'Ex-empleado';
   }
 

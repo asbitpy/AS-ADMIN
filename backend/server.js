@@ -7,7 +7,7 @@ const { liberarReservasVencidas } = require('./lib/reservas');
 const { procesarAlertasStock } = require('./lib/alertasStock');
 const { procesarResumenSemanal } = require('./lib/resumenSemanal');
 const { verificarFirmaMeta } = require('./lib/seguridadWebhook');
-const { usuarioDesdeToken, crearCuentaAuth } = require('./lib/adminUsuarios');
+const { usuarioDesdeToken, crearCuentaAuth, resetearPassword } = require('./lib/adminUsuarios');
 
 const app = express();
 // CORS solo hace falta para /api/* (lo llama el panel desde el
@@ -29,14 +29,37 @@ app.post('/api/crear-cuenta', async (req, res) => {
   const usuario = await usuarioDesdeToken(req.headers.authorization);
   if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
 
-  const { email, nombre } = req.body || {};
+  const { email, nombre, password } = req.body || {};
   if (!email || !email.trim()) return res.status(400).json({ error: 'Falta el email.' });
 
   try {
-    const resultado = await crearCuentaAuth({ email: email.trim(), nombre: nombre?.trim() });
+    const resultado = await crearCuentaAuth({ email: email.trim(), nombre: nombre?.trim(), passwordElegida: password?.trim() });
     res.json(resultado);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'No se pudo crear la cuenta.' });
+  }
+});
+
+// Para cuando alguien se olvida la contraseña — queda afuera del panel,
+// así que no puede entrar a cambiársela sola. resetearPassword() decide
+// adentro si quien llama tiene permiso (su propia cuenta, el dueño de
+// su negocio, o staff de AS BIT); acá solo se exige estar logueado.
+app.post('/api/resetear-password', async (req, res) => {
+  const usuario = await usuarioDesdeToken(req.headers.authorization);
+  if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
+
+  const { auth_user_id, password } = req.body || {};
+  if (!auth_user_id) return res.status(400).json({ error: 'Falta auth_user_id.' });
+
+  try {
+    const resultado = await resetearPassword({
+      llamadorId: usuario.id,
+      authUserId: auth_user_id,
+      passwordElegida: password?.trim(),
+    });
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'No se pudo resetear la contraseña.' });
   }
 });
 
