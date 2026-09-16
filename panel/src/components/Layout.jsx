@@ -14,6 +14,9 @@ import {
   Truck,
   ClipboardList,
   MessageCircle,
+  Banknote,
+  Boxes,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
@@ -89,12 +92,17 @@ export default function Layout() {
   // navegación de celular — viven solo acá, en lo que se pinta dentro
   // de <aside>.
   const enlacesSoloEscritorio = {
-    atender: [{ to: '/conversaciones', label: 'Conversaciones', icon: MessageCircle }],
+    atender: [
+      { to: '/conversaciones', label: 'Conversaciones', icon: MessageCircle },
+      { to: '/jornadas', label: 'Jornadas', icon: Clock },
+    ],
     vender:
       tieneRetail && puedeConfigurar
         ? [
             { to: '/proveedores', label: 'Proveedores', icon: Truck },
             { to: '/compras', label: 'Compras', icon: ClipboardList },
+            { to: '/caja', label: 'Caja', icon: Banknote },
+            { to: '/inventario', label: 'Inventario', icon: Boxes },
           ]
         : [],
   };
@@ -110,12 +118,22 @@ export default function Layout() {
           esEscritorio ? 'flex' : 'hidden'
         }`}
       >
-        <div className="px-5 pb-4 pt-6">
+        <div className="px-5 pb-3 pt-5">
           <p className="text-xs text-muted">AS ADMIN{!esDueno ? ` · ${ETIQUETAS_ROL[rol] || rol}` : ''}</p>
           <h1 className="truncate font-display text-lg font-semibold text-ink">{negocio?.nombre}</h1>
         </div>
 
-        <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
+        {/* Con 4 grupos y más de 15 enlaces (Conversaciones/Jornadas/
+            Caja/Inventario se sumaron en esta tanda), el espaciado
+            "cómodo" de antes ya no entraba entero en una pantalla de
+            laptop típica (~800px de alto) y obligaba a scrollear la
+            barra para llegar a Equipo/Config — de ahí el "quedó una
+            franja para poder mover" que se veía. Se achicó el padding
+            de cada enlace y el espacio entre grupos, no el tamaño de
+            letra (que se sigue leyendo igual). overflow-y-auto queda
+            como red de seguridad para pantallas todavía más chicas, no
+            como el comportamiento esperado. */}
+        <nav className="flex-1 space-y-2.5 overflow-y-auto px-3 pb-3">
           {tabs
             .filter((t) => t.grupo === 'inicio')
             .map(({ to, label, icon: Icon, end }) => (
@@ -127,7 +145,7 @@ export default function Layout() {
             if (items.length === 0) return null;
             return (
               <div key={g.id}>
-                <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted">{g.titulo}</p>
+                <p className="px-3 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">{g.titulo}</p>
                 <div className="space-y-0.5">
                   {items.map(({ to, label, icon: Icon, end }) => (
                     <EnlaceEscritorio key={to} to={to} label={label} Icon={Icon} end={end} />
@@ -138,11 +156,11 @@ export default function Layout() {
           })}
         </nav>
 
-        <div className="border-t border-line px-3 py-3">
-          {!esDueno && usuario?.nombre && <p className="truncate px-3 pb-2 text-xs text-muted">{usuario.nombre}</p>}
+        <div className="border-t border-line px-3 py-2">
+          {!esDueno && usuario?.nombre && <p className="truncate px-3 pb-1.5 text-xs text-muted">{usuario.nombre}</p>}
           <button
             onClick={signOut}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-muted active:text-danger"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted active:text-danger"
           >
             <LogOut size={16} /> Cerrar sesión
           </button>
@@ -212,7 +230,7 @@ function EnlaceEscritorio({ to, label, Icon, end }) {
       to={to}
       end={end}
       className={({ isActive }) =>
-        `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium ${
+        `flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium ${
           isActive ? 'bg-accent-soft text-accent' : 'text-muted hover:text-ink'
         }`
       }

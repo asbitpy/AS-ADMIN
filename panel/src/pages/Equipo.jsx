@@ -546,6 +546,11 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
   const [documento, setDocumento] = useState(empleado.documento || '');
   const [fechaIngreso, setFechaIngreso] = useState(empleado.fecha_ingreso || '');
   const [notas, setNotas] = useState(empleado.notas || '');
+  // Permisos por excepción (migración 029) — hoy el único que hace algo
+  // de verdad es 'anular_ventas': por default eso quedó restringido a
+  // dueño/gerente, esto es la forma de darle esa excepción puntual a
+  // un cajero o vendedor sin ascenderlo.
+  const [permisosExtra, setPermisosExtra] = useState(empleado.permisos_extra || []);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
@@ -613,6 +618,7 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
         documento: documento.trim() || null,
         fecha_ingreso: fechaIngreso || null,
         notas: notas.trim() || null,
+        permisos_extra: permisosExtra,
       })
       .eq('id', empleado.id)
       .select()
@@ -704,6 +710,29 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
               className="mt-1 w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
+        </div>
+      )}
+
+      {panel && (
+        <div className="rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Permisos especiales</p>
+          <p className="mt-0.5 text-xs text-muted">
+            Por default un cajero o vendedor no puede anular ventas — solo dueño y gerente. Marcá esto para darle esa
+            excepción puntual a esta persona.
+          </p>
+          <label className="mt-2 flex items-center gap-2 rounded-lg bg-base px-3 py-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={permisosExtra.includes('anular_ventas')}
+              onChange={(e) =>
+                setPermisosExtra((prev) =>
+                  e.target.checked ? [...prev, 'anular_ventas'] : prev.filter((p) => p !== 'anular_ventas')
+                )
+              }
+              className="h-4 w-4 accent-accent"
+            />
+            Puede anular ventas
+          </label>
         </div>
       )}
 

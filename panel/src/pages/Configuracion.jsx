@@ -5,8 +5,11 @@ import { useAuth } from '../context/AuthContext';
 import HorariosAtencion from '../components/HorariosAtencion';
 import { PALETA_ACCENT, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
+const PLAN_LABEL = { basico: 'Básico', negocio: 'Negocio', full: 'Full' };
+const MODULO_LABEL = { agenda: 'Agenda (turnos)', pos: 'Vender (POS)', inventario: 'Inventario', ecommerce: 'Catálogo ecommerce' };
+
 export default function Configuracion() {
-  const { negocio, actualizarConfigLocal } = useAuth();
+  const { negocio, actualizarConfigLocal, actualizarNegocioLocal } = useAuth();
   const [guardandoColor, setGuardandoColor] = useState(false);
   const [servicios, setServicios] = useState([]);
   const [profesionales, setProfesionales] = useState([]);
@@ -14,9 +17,13 @@ export default function Configuracion() {
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion_minutos: 30 });
   const [nuevoProfesional, setNuevoProfesional] = useState('');
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', motivo: '' });
+  const [nombre, setNombre] = useState(negocio?.nombre || '');
   const [direccion, setDireccion] = useState(negocio?.direccion || '');
   const [sitioWeb, setSitioWeb] = useState(negocio?.sitio_web_url || '');
+  const [telefonoAlertas, setTelefonoAlertas] = useState(negocio?.config?.telefono_dueno || '');
   const [guardando, setGuardando] = useState(false);
+  const [guardandoNombre, setGuardandoNombre] = useState(false);
+  const [guardandoAlertas, setGuardandoAlertas] = useState(false);
   const [guardandoSitio, setGuardandoSitio] = useState(false);
 
   const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
@@ -43,6 +50,36 @@ export default function Configuracion() {
     setGuardando(true);
     await supabase.from('negocios').update({ direccion }).eq('id', negocio.id);
     setGuardando(false);
+  }
+
+  async function guardarNombre() {
+    if (!nombre.trim()) return;
+    setGuardandoNombre(true);
+    const { error } = await supabase.from('negocios').update({ nombre: nombre.trim() }).eq('id', negocio.id);
+    setGuardandoNombre(false);
+    if (!error) actualizarNegocioLocal({ nombre: nombre.trim() });
+  }
+
+  // Mismo cuidado que elegirColorAcento: releer config fresco antes de
+  // escribir, para no pisar otra clave si cambió por otro lado mientras
+  // tanto (horarios, color_acento...).
+  async function guardarTelefonoAlertas() {
+    setGuardandoAlertas(true);
+    const { data: fresco, error: errFetch } = await supabase
+      .from('negocios')
+      .select('config')
+      .eq('id', negocio.id)
+      .single();
+
+    if (!errFetch) {
+      const valor = telefonoAlertas.trim() || null;
+      const { error: errUpdate } = await supabase
+        .from('negocios')
+        .update({ config: { ...(fresco.config || {}), telefono_dueno: valor } })
+        .eq('id', negocio.id);
+      if (!errUpdate) actualizarConfigLocal({ telefono_dueno: valor });
+    }
+    setGuardandoAlertas(false);
   }
 
   async function guardarSitioWeb() {
@@ -126,7 +163,23 @@ export default function Configuracion() {
       <section>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">Datos del negocio</p>
         <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">
-          <label className="text-xs text-muted">Dirección</label>
+          <label className="text-xs text-muted">Nombre</label>
+          <div className="mt-1 flex gap-2">
+            <input
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            <button
+              onClick={guardarNombre}
+              disabled={guardandoNombre}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+            >
+              Guardar
+            </button>
+          </div>
+
+          <label className="mt-3 block text-xs text-muted">Dirección</label>
           <div className="mt-1 flex gap-2">
             <input
               value={direccion}
@@ -147,6 +200,51 @@ export default function Configuracion() {
               <HorariosAtencion negocioId={negocio.id} configActual={negocio.config} />
             </div>
           )}
+        </div>
+      </section>
+
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Alertas por WhatsApp</p>
+        <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs text-muted">
+            A este número te llegan los avisos automáticos: stock bajo y conversaciones derivadas a una persona.
+            Sin este dato cargado, esos avisos no se mandan.
+          </p>
+          <label className="mt-3 block text-xs text-muted">Tu WhatsApp</label>
+          <div className="mt-1 flex gap-2">
+            <input
+              placeholder="09XX XXXXXX"
+              value={telefonoAlertas}
+              onChange={(e) => setTelefonoAlertas(e.target.value)}
+              className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
+            />
+            <button
+              onClick={guardarTelefonoAlertas}
+              disabled={guardandoAlertas}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Plan y módulos</p>
+        <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-ink">Plan {PLAN_LABEL[negocio?.plan] || negocio?.plan}</p>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {(negocio?.modulos_activos || []).map((m) => (
+              <span key={m} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">
+                {MODULO_LABEL[m] || m}
+              </span>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Para cambiar de plan o activar un módulo nuevo, hablá con AS BIT.
+          </p>
         </div>
       </section>
 

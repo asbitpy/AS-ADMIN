@@ -89,6 +89,14 @@ export function AuthProvider({ children }) {
     setNegocio((prev) => (prev ? { ...prev, config: { ...prev.config, ...parcial } } : prev));
   }
 
+  // Mismo criterio que actualizarConfigLocal, pero para columnas propias
+  // de 'negocios' (nombre, dirección...) en vez de las que viven adentro
+  // de 'config' — así un cambio de nombre en Configuración se ve al toque
+  // en el encabezado de la barra lateral, sin esperar un reload.
+  function actualizarNegocioLocal(parcial) {
+    setNegocio((prev) => (prev ? { ...prev, ...parcial } : prev));
+  }
+
   const signIn = (email, password) =>
     supabase.auth.signInWithPassword({ email, password });
 
@@ -101,7 +109,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, negocio, usuario, rol, esDueno, cargando, signIn, signOut, actualizarConfigLocal }}
+      value={{ session, negocio, usuario, rol, esDueno, cargando, signIn, signOut, actualizarConfigLocal, actualizarNegocioLocal }}
     >
       {children}
     </AuthContext.Provider>
