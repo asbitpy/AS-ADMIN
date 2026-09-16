@@ -3,6 +3,7 @@ import { UserPlus, Crown, X, ChevronRight, ChevronLeft, Plus, Trash2, Wallet, Tr
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
+import { crearCuentaAuth } from '../lib/backend';
 import MetricPill from '../components/MetricPill';
 
 const ROLES = [
@@ -60,10 +61,11 @@ export default function Equipo() {
   const [empleadoAbierto, setEmpleadoAbierto] = useState(null);
 
   const [nombre, setNombre] = useState('');
-  const [authUserId, setAuthUserId] = useState('');
+  const [email, setEmail] = useState('');
   const [rol, setRol] = useState('cajero');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
+  const [cuentaCreada, setCuentaCreada] = useState(null); // { email, password } — se muestra una sola vez
   const guardandoRef = useRef(false);
 
   useEffect(() => {
@@ -131,45 +133,52 @@ export default function Equipo() {
     if (guardandoRef.current) return;
     setError(null);
 
-    const idLimpio = authUserId.trim();
-    const uuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idLimpio);
-
     if (!nombre.trim()) {
       setError('Falta el nombre.');
       return;
     }
-    if (!uuidValido) {
-      setError('Ese UUID no tiene el formato correcto. Copialo tal cual de Supabase → Authentication → Users.');
+    if (!email.trim()) {
+      setError('Falta el email.');
       return;
     }
 
     guardandoRef.current = true;
     setGuardando(true);
 
-    const { error: errInsert } = await supabase.from('usuarios').insert({
-      negocio_id: negocio.id,
-      auth_user_id: idLimpio,
-      nombre: nombre.trim(),
-      rol,
-    });
+    try {
+      // El backend crea la cuenta de Supabase Auth (necesita la service
+      // key, por eso no se puede hacer directo desde acá) — reemplaza el
+      // paso manual de ir a Supabase → Authentication → Add user.
+      const { auth_user_id, password } = await crearCuentaAuth({ email: email.trim(), nombre: nombre.trim() });
 
-    guardandoRef.current = false;
-    setGuardando(false);
+      const { error: errInsert } = await supabase.from('usuarios').insert({
+        negocio_id: negocio.id,
+        auth_user_id,
+        nombre: nombre.trim(),
+        rol,
+      });
 
-    if (errInsert) {
-      setError(
-        errInsert.code === '23505'
-          ? 'Ese usuario ya está vinculado a un negocio (acá o en otro). Cada cuenta de Supabase Auth solo puede pertenecer a un negocio.'
-          : 'No se pudo agregar. Revisá el UUID y probá de nuevo.'
-      );
-      return;
+      if (errInsert) {
+        // La cuenta ya se creó en Auth aunque esto falle — se avisa el
+        // UUID para no dejarla huérfana sin forma de recuperarla.
+        throw new Error(
+          errInsert.code === '23505'
+            ? 'Esa cuenta ya está vinculada a un negocio.'
+            : `La cuenta se creó pero no se pudo vincular al equipo. Volvé a intentar, o pasale este UUID a soporte: ${auth_user_id}`
+        );
+      }
+
+      setCuentaCreada({ email: email.trim(), password });
+      setNombre('');
+      setEmail('');
+      setRol('cajero');
+      cargar();
+    } catch (err) {
+      setError(err.message || 'No se pudo agregar. Probá de nuevo.');
+    } finally {
+      guardandoRef.current = false;
+      setGuardando(false);
     }
-
-    setNombre('');
-    setAuthUserId('');
-    setRol('cajero');
-    setVista('lista');
-    cargar();
   }
 
   async function cambiarRol(id, nuevoRol) {
@@ -198,10 +207,16 @@ export default function Equipo() {
     );
   }
 
+  function cerrarFormulario() {
+    setVista('lista');
+    setCuentaCreada(null);
+    setError(null);
+  }
+
   const formulario = (
     <div
       className={`fixed inset-0 z-50 flex bg-black/60 ${esEscritorio ? 'items-center justify-center' : 'items-end'}`}
-      onClick={() => setVista('lista')}
+      onClick={cerrarFormulario}
     >
       <div
         className={`flex max-h-[85vh] w-full flex-col overflow-y-auto bg-surface p-5 pb-6 ${
@@ -209,74 +224,111 @@ export default function Equipo() {
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <p className="font-display text-xl text-ink">Agregar a alguien del equipo</p>
-          <button onClick={() => setVista('lista')} className="shrink-0 text-muted">
-            <X size={20} />
-          </button>
-        </div>
+        {cuentaCreada ? (
+          <>
+            <div className="flex items-center justify-between">
+              <p className="font-display text-xl text-ink">Cuenta creada</p>
+              <button onClick={cerrarFormulario} className="shrink-0 text-muted">
+                <X size={20} />
+              </button>
+            </div>
 
-        <div className="mt-3 rounded-xl bg-accent-soft p-3 text-xs text-accent">
-          Primero creá su cuenta en Supabase → Authentication → Add user (con "Auto Confirm User"
-          marcado) y copiá el UUID que le queda asignado. Recién con ese UUID lo agregás acá.
-        </div>
+            <p className="mt-3 text-sm text-ink">
+              Ya se agregó al equipo. Pasale estos datos para que entre por primera vez — la contraseña
+              no se vuelve a mostrar, si se pierde hay que pedir una nueva.
+            </p>
 
-        <form onSubmit={agregarUsuario} className="mt-3 space-y-3">
-          <input
-            placeholder="Nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
-          />
-          <input
-            placeholder="UUID de Supabase Auth"
-            value={authUserId}
-            onChange={(e) => setAuthUserId(e.target.value)}
-            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 font-mono text-xs outline-none focus:ring-2 focus:ring-accent"
-          />
+            <div className="mt-3 space-y-2 rounded-xl bg-accent-soft p-3">
+              <div>
+                <p className="text-xs text-accent">Email</p>
+                <p className="select-all font-mono text-sm text-accent">{cuentaCreada.email}</p>
+              </div>
+              <div>
+                <p className="text-xs text-accent">Contraseña temporal</p>
+                <p className="select-all font-mono text-lg text-accent">{cuentaCreada.password}</p>
+              </div>
+            </div>
 
-          <div className="space-y-2">
-            {ROLES.map((r) => (
-              <label
-                key={r.id}
-                className={`flex items-center justify-between rounded-xl p-3 shadow-card ${
-                  rol === r.id ? 'bg-accent-soft' : 'bg-surface2'
-                }`}
-              >
-                <div>
-                  <p className={`text-sm font-medium ${rol === r.id ? 'text-accent' : 'text-ink'}`}>{r.label}</p>
-                  <p className="text-xs text-muted">{r.descripcion}</p>
-                </div>
-                <input
-                  type="radio"
-                  name="rol"
-                  checked={rol === r.id}
-                  onChange={() => setRol(r.id)}
-                  className="h-4 w-4 accent-accent"
-                />
-              </label>
-            ))}
-          </div>
-
-          {error && <p className="text-sm text-danger">{error}</p>}
-
-          <div className="flex gap-2 pt-2">
             <button
-              type="button"
-              onClick={() => setVista('lista')}
-              className="flex-1 rounded-xl border border-line py-3 text-sm text-muted"
+              onClick={cerrarFormulario}
+              className="mt-4 w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink"
             >
-              Cancelar
+              Listo
             </button>
-            <button
-              type="submit"
-              disabled={guardando}
-              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
-            >
-              {guardando ? 'Agregando…' : 'Agregar'}
-            </button>
-          </div>
-        </form>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <p className="font-display text-xl text-ink">Agregar a alguien del equipo</p>
+              <button onClick={cerrarFormulario} className="shrink-0 text-muted">
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-muted">
+              Se crea la cuenta sola con el email que cargues acá — te va a quedar una contraseña
+              temporal para pasarle a la persona.
+            </p>
+
+            <form onSubmit={agregarUsuario} className="mt-3 space-y-3">
+              <input
+                placeholder="Nombre"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+              />
+
+              <div className="space-y-2">
+                {ROLES.map((r) => (
+                  <label
+                    key={r.id}
+                    className={`flex items-center justify-between rounded-xl p-3 shadow-card ${
+                      rol === r.id ? 'bg-accent-soft' : 'bg-surface2'
+                    }`}
+                  >
+                    <div>
+                      <p className={`text-sm font-medium ${rol === r.id ? 'text-accent' : 'text-ink'}`}>{r.label}</p>
+                      <p className="text-xs text-muted">{r.descripcion}</p>
+                    </div>
+                    <input
+                      type="radio"
+                      name="rol"
+                      checked={rol === r.id}
+                      onChange={() => setRol(r.id)}
+                      className="h-4 w-4 accent-accent"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              {error && <p className="text-sm text-danger">{error}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={cerrarFormulario}
+                  className="flex-1 rounded-xl border border-line py-3 text-sm text-muted"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-ink disabled:opacity-60"
+                >
+                  {guardando ? 'Creando cuenta…' : 'Agregar'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
