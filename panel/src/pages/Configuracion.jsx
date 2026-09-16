@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Check } from 'lucide-react';
+import { BookOpen, ChevronRight, Download, Plus, Trash2, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import HorariosAtencion from '../components/HorariosAtencion';
@@ -7,6 +7,15 @@ import { PALETA_ACCENT, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
 const PLAN_LABEL = { basico: 'Básico', negocio: 'Negocio', full: 'Full' };
 const MODULO_LABEL = { agenda: 'Agenda (turnos)', pos: 'Vender (POS)', inventario: 'Inventario', ecommerce: 'Catálogo ecommerce' };
+
+// Guía completa de uso del panel y el bot de WhatsApp — vive afuera del
+// código (es una página publicada, no algo que compile con el panel)
+// para poder actualizarla sin tocar ni desplegar el panel de nuevo.
+const MANUAL_URL = 'https://claude.ai/artifact/GqS72F4XFoFfnF4tZFsh9e';
+// Mismo manual en PowerPoint, servido desde un bucket público de
+// Supabase Storage (ver backend/scripts/subir-manual.js) — se sube a
+// mano cuando el manual se actualiza, no corre desde el panel.
+const MANUAL_PPTX_URL = 'https://srgzygjdekqdkkvdxdem.supabase.co/storage/v1/object/public/recursos-publicos/manual-as-admin.pptx';
 
 export default function Configuracion() {
   const { negocio, actualizarConfigLocal, actualizarNegocioLocal } = useAuth();
@@ -190,6 +199,40 @@ export default function Configuracion() {
 
   return (
     <div className="space-y-6">
+      <div className="space-y-2">
+        <a
+          href={MANUAL_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-3 rounded-2xl bg-accent-soft p-4 shadow-card active:scale-[0.99]"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+            <BookOpen size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-accent">Manual de uso</p>
+            <p className="text-xs text-accent/80">Cómo usar cada pantalla del panel y qué hace el bot de WhatsApp</p>
+          </div>
+          <ChevronRight size={18} className="shrink-0 text-accent" />
+        </a>
+
+        <a
+          href={MANUAL_PPTX_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-3 rounded-2xl bg-surface p-4 shadow-card active:scale-[0.99]"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface2 text-ink">
+            <Download size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-ink">Descargar en PowerPoint</p>
+            <p className="text-xs text-muted">El mismo manual, para ver offline o compartir con el equipo</p>
+          </div>
+          <ChevronRight size={18} className="shrink-0 text-muted" />
+        </a>
+      </div>
+
       <section>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">Datos del negocio</p>
         <div className="mt-2 rounded-2xl bg-surface p-4 shadow-card">

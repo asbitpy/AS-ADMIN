@@ -157,7 +157,7 @@ Pendiente para cerrar la Fase 1:
 - [ ] Medir la métrica estrella durante el piloto: **tasa de ausencias antes vs. después**
 - [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc.)
 - [ ] Material de venta con las métricas reales del piloto para salir a buscar los clientes 2-5
-- [ ] Manual de uso del panel para el dueño/equipo — descargable o como link directo. Ya no está pausado: **próxima sesión**, junto con levantar el bot local (sección 1) y las pruebas de uso real
+- [x] Manual de uso del panel y el bot de WhatsApp — dos formatos: página web (`claude.ai/artifact/GqS72F4XFoFfnF4tZFsh9e`, con el mismo estilo del producto) y PowerPoint descargable con el logo y los colores reales de AS BIT (`backend/scripts/subir-manual.js` lo sube al bucket público `recursos-publicos` de Supabase Storage). Los dos, con link directo desde Configuración → arriba de todo
 - [ ] Mini link/botón dentro del panel ("¿Problemas técnicos?") que comunique directo con AS BIT — pausado para el final, junto con el manual
 - [ ] La "Página de AS ADMIN dentro del sitio de AS BIT" (línea de arriba) cubre también el pedido de una página para promocionar el sistema — mismo ítem, sin duplicar
 
