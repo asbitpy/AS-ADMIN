@@ -51,7 +51,7 @@ function formatoGsCompacto(monto) {
 }
 
 export default function Equipo() {
-  const { negocio } = useAuth();
+  const { negocio, esDueno } = useAuth();
   const { esEscritorio } = useEsEscritorio();
   const tieneRetail = (negocio?.modulos_activos || []).some((m) => m === 'pos' || m === 'inventario');
   const [usuarios, setUsuarios] = useState([]);
@@ -355,12 +355,14 @@ export default function Equipo() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="font-display text-xl text-ink">Equipo</p>
-        <button
-          onClick={() => setVista('form')}
-          className="flex items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-medium text-ink active:scale-[0.98]"
-        >
-          <UserPlus size={16} /> Agregar
-        </button>
+        {esDueno && (
+          <button
+            onClick={() => setVista('form')}
+            className="flex items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-medium text-ink active:scale-[0.98]"
+          >
+            <UserPlus size={16} /> Agregar
+          </button>
+        )}
       </div>
 
       {esEscritorio && !cargando && (

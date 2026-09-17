@@ -31,13 +31,42 @@ async function usuarioDesdeToken(authHeader) {
   return data.user;
 }
 
+// ¿Puede 'llamadorId' crear cuentas nuevas? Solo el dueño de un negocio
+// (para sumar gente a su propio equipo) o alguien de staff_asbit (para
+// crear el dueño de un negocio cliente nuevo desde /asbit/negocios) —
+// antes cualquier persona logueada podía crear cuentas para cualquier
+// email, sin importar su rol.
+async function puedeCrearCuenta(llamadorId) {
+  const { data: esDueno } = await supabase
+    .from('negocios')
+    .select('id')
+    .eq('auth_user_id', llamadorId)
+    .maybeSingle();
+  if (esDueno) return true;
+
+  const { data: esStaff } = await supabase
+    .from('staff_asbit')
+    .select('auth_user_id')
+    .eq('auth_user_id', llamadorId)
+    .maybeSingle();
+
+  return !!esStaff;
+}
+
 // Crea la cuenta de Auth ya confirmada (mismo efecto que tildar "Auto
 // Confirm User" a mano). Si quien la crea ya quiere ponerle una
 // contraseña propia (por ejemplo, una que ya le dictó a la persona por
 // teléfono) se puede mandar 'passwordElegida' — si no, se genera una
 // temporal acá. Se devuelve la que se usó en los dos casos, así la
 // pantalla de confirmación es siempre la misma.
-async function crearCuentaAuth({ email, nombre, passwordElegida }) {
+async function crearCuentaAuth({ llamadorId, email, nombre, passwordElegida }) {
+  const autorizado = await puedeCrearCuenta(llamadorId);
+  if (!autorizado) {
+    const err = new Error('Solo el dueño del negocio puede crear cuentas nuevas.');
+    err.status = 403;
+    throw err;
+  }
+
   if (passwordElegida && passwordElegida.length < 6) {
     const err = new Error('La contraseña tiene que tener al menos 6 caracteres.');
     err.status = 400;

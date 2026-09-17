@@ -11,10 +11,15 @@ function urlDe(wa) {
   return `https://graph.facebook.com/${GRAPH_VERSION}/${wa.phoneNumberId}/messages`;
 }
 
+// Tira excepción si el envío no salió (credenciales faltantes o la API de
+// Meta respondió error) — antes devolvía null/la respuesta igual y quien
+// llamaba seguía como si hubiese salido bien. Eso hacía que, por ejemplo,
+// un recordatorio fallido se marcara como "enviado" en la base igual, o
+// que un mensaje del bot se guardara en el historial aunque el cliente
+// nunca lo haya recibido (responder.js recién guarda DESPUÉS del envío).
 async function llamarApi(wa, payload) {
   if (!wa?.phoneNumberId || !wa?.token) {
-    console.error('WhatsApp: negocio sin credenciales configuradas — no se envía nada.');
-    return null;
+    throw new Error('WhatsApp: negocio sin credenciales configuradas — no se envía nada.');
   }
 
   const res = await fetch(urlDe(wa), {
@@ -27,7 +32,7 @@ async function llamarApi(wa, payload) {
   });
   if (!res.ok) {
     const detalle = await res.text().catch(() => '');
-    console.error(`WhatsApp API respondió ${res.status}: ${detalle}`);
+    throw new Error(`WhatsApp API respondió ${res.status}: ${detalle}`);
   }
   return res;
 }

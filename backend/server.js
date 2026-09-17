@@ -9,6 +9,27 @@ const { procesarResumenSemanal } = require('./lib/resumenSemanal');
 const { verificarFirmaMeta } = require('./lib/seguridadWebhook');
 const { usuarioDesdeToken, crearCuentaAuth, resetearPassword } = require('./lib/adminUsuarios');
 
+// Limitador simple en memoria para /api/crear-cuenta y /api/resetear-password:
+// sin esto, un token válido filtrado (o un empleado con malas intenciones)
+// podía crear cuentas o probar resets sin ningún freno. No sirve para varios
+// servidores (mismo caso que los NOTA de los setInterval de abajo), pero acá
+// alcanza. 10 intentos cada 15 minutos por IP.
+function limitarPorIp(maxIntentos = 10, ventanaMs = 15 * 60 * 1000) {
+  const intentos = new Map(); // ip -> [timestamps]
+  return (req, res, next) => {
+    const ip = req.ip;
+    const ahora = Date.now();
+    const previos = (intentos.get(ip) || []).filter((t) => ahora - t < ventanaMs);
+    if (previos.length >= maxIntentos) {
+      return res.status(429).json({ error: 'Demasiados intentos, probá de nuevo en un rato.' });
+    }
+    previos.push(ahora);
+    intentos.set(ip, previos);
+    next();
+  };
+}
+const limitarCuentas = limitarPorIp();
+
 const app = express();
 // CORS solo hace falta para /api/* (lo llama el panel desde el
 // navegador) — el webhook de Meta no pasa por un browser, no lo
@@ -21,11 +42,11 @@ app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 // El panel llama acá para crear la cuenta de Supabase Auth de un
 // empleado nuevo o del dueño de un negocio nuevo — antes era un paso a
-// mano en el panel de Supabase que un usuario normal no sabe hacer. La
-// autorización real de "a qué negocio se puede agregar esta cuenta"
-// sigue pasando por RLS del lado del panel (esto solo exige estar
-// logueado en AS ADMIN, no decide nada de negocio_id).
-app.post('/api/crear-cuenta', async (req, res) => {
+// mano en el panel de Supabase que un usuario normal no sabe hacer.
+// Solo el dueño de un negocio (para su propio equipo) o staff_asbit
+// (para dar de alta un negocio cliente nuevo) puede crear cuentas —
+// crearCuentaAuth() lo verifica con puedeCrearCuenta().
+app.post('/api/crear-cuenta', limitarCuentas, async (req, res) => {
   const usuario = await usuarioDesdeToken(req.headers.authorization);
   if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
 
@@ -33,7 +54,12 @@ app.post('/api/crear-cuenta', async (req, res) => {
   if (!email || !email.trim()) return res.status(400).json({ error: 'Falta el email.' });
 
   try {
-    const resultado = await crearCuentaAuth({ email: email.trim(), nombre: nombre?.trim(), passwordElegida: password?.trim() });
+    const resultado = await crearCuentaAuth({
+      llamadorId: usuario.id,
+      email: email.trim(),
+      nombre: nombre?.trim(),
+      passwordElegida: password?.trim(),
+    });
     res.json(resultado);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'No se pudo crear la cuenta.' });
@@ -44,7 +70,7 @@ app.post('/api/crear-cuenta', async (req, res) => {
 // así que no puede entrar a cambiársela sola. resetearPassword() decide
 // adentro si quien llama tiene permiso (su propia cuenta, el dueño de
 // su negocio, o staff de AS BIT); acá solo se exige estar logueado.
-app.post('/api/resetear-password', async (req, res) => {
+app.post('/api/resetear-password', limitarCuentas, async (req, res) => {
   const usuario = await usuarioDesdeToken(req.headers.authorization);
   if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
 
@@ -72,7 +98,11 @@ app.get('/webhook', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  // Si WHATSAPP_VERIFY_TOKEN no está seteado en .env, VERIFY_TOKEN queda
+  // undefined — sin el chequeo de abajo, un request sin hub.verify_token
+  // también sería undefined y "matchearía", dejando confirmar el webhook
+  // a cualquiera. VERIFY_TOKEN tiene que existir Y coincidir.
+  if (mode === 'subscribe' && !!VERIFY_TOKEN && token === VERIFY_TOKEN) {
     console.log('Webhook verificado ✅');
     return res.status(200).send(challenge);
   }

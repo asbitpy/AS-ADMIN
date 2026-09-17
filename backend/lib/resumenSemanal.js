@@ -65,13 +65,18 @@ async function procesarResumenSemanal() {
     const ingresos = (movimientos || []).filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0);
     const egresos = (movimientos || []).filter((m) => m.tipo === 'egreso').reduce((a, m) => a + Number(m.monto), 0);
 
-    await sendTemplate(wa, telefonoDueno, nombrePlantilla, [
-      formatoGsCompacto(ingresos),
-      formatoGsCompacto(egresos),
-      formatoGsCompacto(ingresos - egresos),
-    ]);
-
-    await supabase.from('negocios').update({ resumen_semanal_enviado_en: ahora.toISOString() }).eq('id', negocio.id);
+    // Try/catch por negocio: uno que falle no frena el resto, y solo
+    // marcamos enviado si el envío no tiró error.
+    try {
+      await sendTemplate(wa, telefonoDueno, nombrePlantilla, [
+        formatoGsCompacto(ingresos),
+        formatoGsCompacto(egresos),
+        formatoGsCompacto(ingresos - egresos),
+      ]);
+      await supabase.from('negocios').update({ resumen_semanal_enviado_en: ahora.toISOString() }).eq('id', negocio.id);
+    } catch (err) {
+      console.error(`Error mandando resumen semanal al negocio ${negocio.id}:`, err);
+    }
   }
 }
 

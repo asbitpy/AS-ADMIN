@@ -36,7 +36,17 @@ async function handleIncomingMessage(rawBody) {
   const msg = parseIncomingMessage(rawBody);
   if (!msg) return; // evento de estado (entregado/leído), no un mensaje
 
-  const negocio = await obtenerNegocioPorNumero(msg.phoneNumberId);
+  let negocio;
+  try {
+    negocio = await obtenerNegocioPorNumero(msg.phoneNumberId);
+  } catch (err) {
+    // No podemos avisarle nada al cliente acá: todavía no sabemos con
+    // qué negocio/credenciales responderle. Al menos lo dejamos bien
+    // identificado en el log en vez de que se pierda en el catch
+    // genérico de server.js.
+    console.error(`Error resolviendo negocio para phone_number_id=${msg.phoneNumberId}:`, err);
+    return;
+  }
   if (!negocio) {
     console.warn(`Mensaje para un phone_number_id no configurado: ${msg.phoneNumberId}`);
     return;
@@ -80,6 +90,62 @@ async function handleIncomingMessage(rawBody) {
   }
 }
 
+// Cuánto esperamos, sin mensajes nuevos del mismo cliente, antes de
+// procesar un texto libre. Si en el medio llega otro mensaje, se suma al
+// mismo lote y el reloj arranca de nuevo — así "Hola" seguido de "quiero
+// consultar" se entienden como un solo pedido en vez de dos respuestas
+// separadas y descoordinadas.
+const DEBOUNCE_TEXTO_LIBRE_MS = 15000;
+// conversacion.id -> { entradas, negocio, cliente, esNueva, to, timer }
+const buffersPendientes = new Map();
+
+function bufferizarYProgramar({ negocio, cliente, conversacion, esNueva, entrada, to }) {
+  const existente = buffersPendientes.get(conversacion.id);
+  if (existente) {
+    existente.entradas.push(entrada);
+    clearTimeout(existente.timer);
+    existente.timer = setTimeout(() => dispararBuffer(conversacion.id), DEBOUNCE_TEXTO_LIBRE_MS);
+    return;
+  }
+
+  buffersPendientes.set(conversacion.id, {
+    entradas: [entrada],
+    negocio,
+    cliente,
+    esNueva,
+    to,
+    timer: setTimeout(() => dispararBuffer(conversacion.id), DEBOUNCE_TEXTO_LIBRE_MS),
+  });
+}
+
+async function dispararBuffer(conversacionId) {
+  const pendiente = buffersPendientes.get(conversacionId);
+  if (!pendiente) return;
+  buffersPendientes.delete(conversacionId);
+
+  const { negocio, cliente, esNueva, to } = pendiente;
+  const entradaCombinada = pendiente.entradas.join('\n');
+
+  try {
+    // Volvemos a traer la conversación: pudieron pasar hasta 15s, y algo
+    // (una derivación a humano, por ejemplo) pudo haber cambiado su estado.
+    const { data: conversacion } = await supabase.from('conversaciones').select('*').eq('id', conversacionId).maybeSingle();
+    if (!conversacion || conversacion.estado === 'derivado_humano') return;
+    await enrutarEntrada({ entrada: entradaCombinada, negocio, cliente, conversacion, esNueva, to });
+  } catch (err) {
+    console.error(`Error procesando mensajes acumulados de ${to} (negocio ${negocio.id}):`, err);
+    try {
+      await sendText(
+        negocio.wa,
+        to,
+        'Uy, tuve un problema para responderte 🙏 Dame un momento y probá de nuevo, o escribime "hablar con alguien" si es urgente.'
+      );
+    } catch (errFallback) {
+      console.error('Además falló el mensaje de respaldo:', errFallback);
+    }
+  }
+}
+
 async function procesarMensajeCliente(msg, negocio) {
   const cliente = await obtenerOCrearCliente(negocio.id, msg.from);
   const { conversacion, esNueva } = await obtenerOCrearConversacion(negocio.id, cliente.id);
@@ -113,15 +179,37 @@ async function procesarMensajeCliente(msg, negocio) {
     return;
   }
 
+  // Solo acumulamos texto ESCRITO sin un flujo guiado en curso: un click
+  // de botón/lista es una acción puntual que hay que responder al toque,
+  // y un paso de flujo (ej. "3" para cantidad) espera una entrada puntual
+  // que no tiene sentido mezclar con otro mensaje. El texto libre "suelto"
+  // (saludo, pregunta, pedido) es justo el caso donde mensajes seguidos
+  // del cliente se leen mejor juntos que por separado — y de paso, al
+  // procesarlos en un solo lote, dos mensajes rápidos ya no compiten en
+  // paralelo por escribir conversaciones.contexto.
+  const esTextoLibre = !msg.interactiveReplyId && !msg.templateButtonPayload;
+  const flujoEnCurso = !!conversacion.contexto?.flujo;
+  if (esTextoLibre && !flujoEnCurso) {
+    bufferizarYProgramar({ negocio, cliente, conversacion, esNueva, entrada, to: msg.from });
+    return;
+  }
+
+  await enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to: msg.from });
+}
+
+async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to }) {
   // Conversación nueva y el mensaje es un simple saludo: bienvenida directa,
   // sin gastar una llamada al clasificador.
   if (esNueva && esSaludoSimple(entrada)) {
-    return enviarMenuBienvenida(negocio, conversacion, msg.from);
+    return enviarMenuBienvenida(negocio, conversacion, to);
   }
 
   // 1) ¿La entrada es un botón con intención codificada? (sin Claude)
   let intencion = MAPA_DETERMINISTICO[entrada] || null;
   let clasificacion = null;
+  // Si el paso 3 ya trajo el catálogo para clasificar, lo reusamos más
+  // abajo (ver_catalogo/consultar_stock) en vez de repetir la consulta.
+  let productosYaCargados = null;
 
   // 2) ¿Es una respuesta de un paso de un flujo guiado en curso? (sin Claude)
   if (!intencion && /^(serv_|franja_|pq_|le_|prof_)/.test(entrada)) {
@@ -131,7 +219,7 @@ async function procesarMensajeCliente(msg, negocio) {
       negocio,
       cliente,
       conversacion,
-      to: msg.from,
+      to,
     });
     if (manejado) return;
   }
@@ -142,21 +230,32 @@ async function procesarMensajeCliente(msg, negocio) {
       negocio,
       cliente,
       conversacion,
-      to: msg.from,
+      to,
     });
     if (manejado) return;
   }
   if (!intencion && /^oferta_/.test(entrada)) {
-    const manejado = await flujoListaEspera.continuar({ entrada, negocio, conversacion, to: msg.from });
+    const manejado = await flujoListaEspera.continuar({ entrada, negocio, conversacion, to });
     if (manejado) return;
   }
 
-  // 3) Texto libre: clasificamos con Claude (una sola llamada por mensaje).
+  // 3) Texto libre: clasificamos con Claude (una sola llamada por mensaje,
+  //    aunque 'entrada' venga de varios mensajes acumulados).
   if (!intencion) {
     const modulos = negocio.modulos_activos || ['agenda'];
-    const servicios = modulos.includes('agenda') ? await obtenerServicios(negocio.id) : [];
-    const productos = modulos.includes('pos') ? await obtenerProductos(negocio.id) : [];
-    const historial = await obtenerUltimosMensajes(conversacion.id, 6);
+    // Las tres consultas son independientes entre sí — en paralelo en vez
+    // de una tras otra, para no sumarle latencia extra antes de llegar a
+    // la llamada (ya de por sí lenta) al clasificador.
+    const [servicios, productos, historial] = await Promise.all([
+      modulos.includes('agenda') ? obtenerServicios(negocio.id) : [],
+      modulos.includes('pos') ? obtenerProductos(negocio.id) : [],
+      obtenerUltimosMensajes(conversacion.id, 6),
+    ]);
+    // Solo la guardamos si realmente se consultó (módulo 'pos' activo) —
+    // si no, productos quedó en [] por el gate de arriba, y no queremos
+    // que un ver_catalogo/consultar_stock posterior confunda ese [] con
+    // "ya lo cargué, no hay nada" en vez de ir a buscarlo de verdad.
+    if (modulos.includes('pos')) productosYaCargados = productos;
     clasificacion = await clasificarIntencion({
       mensaje: entrada,
       negocio,
@@ -177,7 +276,7 @@ async function procesarMensajeCliente(msg, negocio) {
       prioridad: intencion === 'reclamo' ? 'alta' : 'normal',
       motivo: MOTIVO_DERIVACION[intencion],
     });
-    return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeDerivadoHumano(), intencion);
+    return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeDerivadoHumano(), intencion);
   }
 
   // 5) Si hay un flujo en curso, dejamos que lo continúe con el texto libre
@@ -190,7 +289,7 @@ async function procesarMensajeCliente(msg, negocio) {
       negocio,
       cliente,
       conversacion,
-      to: msg.from,
+      to,
     });
     if (manejado) return;
   } else if (conversacion.contexto?.flujo === 'pedido') {
@@ -200,7 +299,7 @@ async function procesarMensajeCliente(msg, negocio) {
       negocio,
       cliente,
       conversacion,
-      to: msg.from,
+      to,
     });
     if (manejado) return;
   }
@@ -208,48 +307,54 @@ async function procesarMensajeCliente(msg, negocio) {
   // 6) Acciones de nivel de menú.
   switch (intencion) {
     case 'saludo':
-      return enviarMenuBienvenida(negocio, conversacion, msg.from);
+      return enviarMenuBienvenida(negocio, conversacion, to);
 
     case 'agendar_turno':
-      return flujoAgendar.iniciar({ negocio, conversacion, to: msg.from });
+      return flujoAgendar.iniciar({ negocio, conversacion, to });
 
     case 'ver_precios': {
       const servicios = await obtenerServicios(negocio.id);
-      return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajePrecios(servicios), intencion);
+      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajePrecios(servicios), intencion);
     }
 
     case 'ver_ubicacion':
-      return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeUbicacion(negocio), intencion);
+      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeUbicacion(negocio), intencion);
 
     case 'confirmar_turno':
     case 'cancelar_turno':
     case 'reprogramar_turno':
-      return gestionarTurnoExistente({ intencion, negocio, cliente, conversacion, to: msg.from });
+      return gestionarTurnoExistente({ intencion, negocio, cliente, conversacion, to });
 
     case 'ver_catalogo': {
-      const productos = await obtenerProductos(negocio.id);
-      return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeCatalogo(productos), intencion);
+      const productos = productosYaCargados || (await obtenerProductos(negocio.id));
+      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeCatalogo(productos), intencion);
     }
 
     case 'consultar_stock':
-      return responderConsultaStock({ negocio, conversacion, to: msg.from, datos: clasificacion?.datos_extraidos || {} });
+      return responderConsultaStock({
+        negocio,
+        conversacion,
+        to,
+        datos: clasificacion?.datos_extraidos || {},
+        productos: productosYaCargados,
+      });
 
     case 'hacer_pedido': {
       const datos = clasificacion?.datos_extraidos || {};
       return flujoPedido.iniciar({
         negocio,
         conversacion,
-        to: msg.from,
+        to,
         productoNombre: datos.producto || null,
         varianteTexto: datos.variante || null,
       });
     }
 
     case 'cancelar_pedido':
-      return cancelarPedidoExistente({ negocio, cliente, conversacion, to: msg.from });
+      return cancelarPedidoExistente({ negocio, cliente, conversacion, to });
 
     default:
-      return responderTexto(negocio.wa, conversacion.id, msg.from, respuestas.mensajeNoEntendido(), 'no_entendido');
+      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeNoEntendido(), 'no_entendido');
   }
 }
 
@@ -300,8 +405,8 @@ async function gestionarTurnoExistente({ intencion, negocio, cliente, conversaci
 // Retail: consulta de stock
 // --------------------------------------------------------------------
 
-async function responderConsultaStock({ negocio, conversacion, to, datos }) {
-  const productos = await obtenerProductos(negocio.id);
+async function responderConsultaStock({ negocio, conversacion, to, datos, productos: productosPreCargados = null }) {
+  const productos = productosPreCargados || (await obtenerProductos(negocio.id));
   const producto = productos.find((p) => p.nombre.toLowerCase() === (datos.producto || '').toLowerCase());
 
   if (!producto) {
@@ -433,7 +538,14 @@ async function derivarAHumano({ negocio, cliente, conversacionId, prioridad, mot
   }
 
   const nombreCliente = cliente?.nombre && cliente.nombre !== 'Sin nombre' ? cliente.nombre : 'Un cliente';
-  await sendTemplate(negocio.wa, telefonoDueno, nombrePlantilla, [nombreCliente, motivo || 'Necesita ayuda']);
+  try {
+    await sendTemplate(negocio.wa, telefonoDueno, nombrePlantilla, [nombreCliente, motivo || 'Necesita ayuda']);
+  } catch (err) {
+    // Si falla avisarle al dueño, igual queremos que el cliente reciba su
+    // mensaje de "te conectamos con alguien" (lo manda quien llama a
+    // esta función, después) en vez de perderse en el catch genérico.
+    console.error(`Error avisando al dueño de la derivación (negocio ${negocio.id}):`, err);
+  }
 }
 
 async function obtenerNegocioPorNumero(phoneNumberId) {

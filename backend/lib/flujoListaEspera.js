@@ -11,6 +11,11 @@ const { responderTexto, responderBotones } = require('./responder');
 const respuestas = require('./respuestas');
 const agenda = require('./agenda');
 
+// exclusion_violation: la restricción turnos_sin_solape (migración 007)
+// rechazó el turno porque se ocupó justo al confirmar. Mismo código que
+// usa flujoAgendar.js.
+const CODIGO_SOLAPE = '23P01';
+
 async function guardarContexto(conversacionId, contexto) {
   await supabase.from('conversaciones').update({ contexto }).eq('id', conversacionId);
 }
@@ -115,9 +120,19 @@ async function confirmar({ negocio, conversacion, to, ctx }) {
     monto: servicio.precio,
   });
 
-  // Se ocupó justo al confirmar (carrera): mismo caso que ya maneja
-  // flujoAgendar, la restricción anti-solape de la base lo rechaza.
-  if (error) return perdioElLugar({ negocio, conversacion, to, ctx });
+  if (error) {
+    // Solo un choque de horario (alguien agendó esa franja justo antes)
+    // significa "se perdió el lugar". Cualquier otro error (conexión,
+    // columna, RLS) es un problema real: lo logueamos en vez de tratarlo
+    // como si el cliente hubiese llegado tarde.
+    if (error.code !== CODIGO_SOLAPE) {
+      console.error(`Error insertando turno desde lista de espera (lista_espera_id=${ctx.lista_espera_id}):`, error);
+      await guardarContexto(conversacion.id, {});
+      await responderTexto(negocio.wa, conversacion.id, to, 'Uy, tuve un problema confirmando eso. Ya le aviso al equipo, dale un toque y seguimos 🙌');
+      return true;
+    }
+    return perdioElLugar({ negocio, conversacion, to, ctx });
+  }
 
   await supabase.from('lista_espera').update({ estado: 'tomado' }).eq('id', ctx.lista_espera_id);
   await guardarContexto(conversacion.id, {});

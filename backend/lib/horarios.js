@@ -24,6 +24,18 @@ function saludoSegunHora(ahora = Date.now()) {
   return 'Buenas noches';
 }
 
+function bloqueCubreHora(bloque, horaMin) {
+  const [desde, hasta] = bloque.split('-');
+  const [h1, m1] = desde.split(':').map(Number);
+  const [h2, m2] = hasta.split(':').map(Number);
+  const desdeMin = h1 * 60 + m1;
+  const hastaMin = h2 * 60 + m2;
+  // Bloque que cruza medianoche (ej. "20:00-01:00"): la parte de "hoy" es
+  // desde `desdeMin` hasta fin del día, y sigue mañana desde 00:00.
+  if (hastaMin <= desdeMin) return horaMin >= desdeMin || horaMin < hastaMin;
+  return horaMin >= desdeMin && horaMin < hastaMin;
+}
+
 // { horarios: { lun: ["08:00-12:00", "15:00-19:00"], ... } } — mismo
 // formato que usa el motor de disponibilidad de agenda.js.
 function estaAbierto(negocio, ahora = Date.now()) {
@@ -31,13 +43,19 @@ function estaAbierto(negocio, ahora = Date.now()) {
   if (!horarios) return true; // sin horario cargado: no bloqueamos nada
 
   const { dia, horaMin } = horaLocalParaguay(ahora);
-  const bloques = horarios[dia] || [];
+  const bloquesHoy = horarios[dia] || [];
+  if (bloquesHoy.some((bloque) => bloqueCubreHora(bloque, horaMin))) return true;
 
-  return bloques.some((bloque) => {
+  // Si es la madrugada, puede seguir abierto por un bloque de AYER que
+  // cruzó medianoche (ej. "vie: 20:00-01:00" sigue abierto sábado 00:30).
+  const diaAnterior = DIAS[(DIAS.indexOf(dia) + 6) % 7];
+  const bloquesAyer = horarios[diaAnterior] || [];
+  return bloquesAyer.some((bloque) => {
     const [desde, hasta] = bloque.split('-');
     const [h1, m1] = desde.split(':').map(Number);
     const [h2, m2] = hasta.split(':').map(Number);
-    return horaMin >= h1 * 60 + m1 && horaMin < h2 * 60 + m2;
+    const cruzaMedianoche = h2 * 60 + m2 <= h1 * 60 + m1;
+    return cruzaMedianoche && horaMin < h2 * 60 + m2;
   });
 }
 

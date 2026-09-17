@@ -119,7 +119,12 @@ async function obtenerFranjasDisponibles({ negocio, servicio, diasVista = 7, max
 
   const ahora = Date.now();
   const margenMinimo = ahora + 60 * 60000; // no ofrecer franjas a menos de 1 hora
-  const hasta = ahora + diasVista * 86400000;
+  // El loop de abajo recorre los días 0..diasVista (inclusive, diasVista+1
+  // días), así que la ventana de ocupados tiene que cubrir ese último día
+  // completo — si no, un turno ya tomado ese día no se carga en `ocupados`
+  // y esa franja se ofrece como libre (se revalida después, pero igual es
+  // una franja "fantasma" mostrada al cliente).
+  const hasta = ahora + (diasVista + 1) * 86400000;
 
   const { ocupados, feriados } = await cargarOcupadosYFeriados(
     negocio.id,

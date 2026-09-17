@@ -46,11 +46,20 @@ async function enviarTanda(turnos, cache, { plantilla, campoEnviado, etiqueta })
       continue;
     }
 
-    await sendTemplate(wa, turno.cliente.telefono, nombrePlantilla, [
-      turno.cliente.nombre,
-      formatearFranjaLarga(new Date(turno.fecha_hora).getTime()),
-    ]);
-    await supabase.from('turnos').update({ [campoEnviado]: true }).eq('id', turno.id);
+    // Try/catch por turno: si uno falla (token vencido, número inválido,
+    // error de red), no tiene que frenar el resto de la tanda — y solo
+    // marcamos enviado si sendTemplate no tiró error, así uno fallido
+    // queda con el campo en false y se reintenta en la próxima corrida
+    // en vez de darse por enviado sin haber salido.
+    try {
+      await sendTemplate(wa, turno.cliente.telefono, nombrePlantilla, [
+        turno.cliente.nombre,
+        formatearFranjaLarga(new Date(turno.fecha_hora).getTime()),
+      ]);
+      await supabase.from('turnos').update({ [campoEnviado]: true }).eq('id', turno.id);
+    } catch (err) {
+      console.error(`Error mandando recordatorio "${etiqueta}" al turno ${turno.id}:`, err);
+    }
   }
 }
 

@@ -27,6 +27,13 @@ async function cargarServicios(negocioId) {
   return data || [];
 }
 
+/** Busca un servicio puntual sin filtrar por activo — para reprogramar un
+ *  turno cuyo servicio original pudo haberse desactivado después. */
+async function cargarServicioPorId(servicioId) {
+  const { data } = await supabase.from('servicios').select('*').eq('id', servicioId).maybeSingle();
+  return data || null;
+}
+
 async function cargarProfesionalesActivos(negocioId) {
   const { data } = await supabase
     .from('profesionales')
@@ -47,7 +54,21 @@ async function iniciar({ negocio, conversacion, to, turnoAReprogramar = null }) 
   }
 
   if (turnoAReprogramar) {
-    const servicio = servicios.find((s) => s.id === turnoAReprogramar.servicio_id) || servicios[0];
+    // El servicio pudo desactivarse después de creado el turno — lo
+    // buscamos puntual (sin filtro de activo) en vez de caer en
+    // servicios[0], que sería un servicio arbitrario sin relación.
+    const servicio =
+      servicios.find((s) => s.id === turnoAReprogramar.servicio_id) ||
+      (await cargarServicioPorId(turnoAReprogramar.servicio_id));
+
+    if (!servicio) {
+      // El servicio original ya no existe (borrado, no solo desactivado):
+      // no hay con qué reprogramar. Mandamos al inicio del flujo para que
+      // elija uno de los servicios vigentes.
+      await responderTexto(negocio.wa, conversacion.id, to, 'Ese servicio ya no está disponible — decime qué querés agendar y te muestro las opciones actuales 🙌');
+      return iniciar({ negocio, conversacion, to });
+    }
+
     const ctx = {
       flujo: 'agendar',
       paso: 'elegir_franja',

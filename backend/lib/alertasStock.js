@@ -98,8 +98,14 @@ async function procesarAlertasStock() {
       continue;
     }
 
-    await sendTemplate(wa, telefonoDueno, nombrePlantilla, [producto.nombre, String(stockTotal)]);
-    await supabase.from('productos').update({ alerta_stock_baja_enviada: true }).eq('id', producto.id);
+    // Try/catch por producto: uno que falle (token vencido, etc.) no
+    // frena el resto, y solo marcamos enviada si el envío no tiró error.
+    try {
+      await sendTemplate(wa, telefonoDueno, nombrePlantilla, [producto.nombre, String(stockTotal)]);
+      await supabase.from('productos').update({ alerta_stock_baja_enviada: true }).eq('id', producto.id);
+    } catch (err) {
+      console.error(`Error mandando alerta de stock del producto ${producto.id}:`, err);
+    }
   }
 }
 
