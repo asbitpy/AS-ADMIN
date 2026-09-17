@@ -2,8 +2,15 @@
 // Esto garantiza que un precio, una ubicación o una confirmación de turno
 // nunca salgan "inventados" por el modelo.
 
+const { estaAbierto, saludoSegunHora } = require('./horarios');
+
 function mensajeBienvenida(negocio) {
-  return `¡Hola! 👋 Soy el asistente de ${negocio.nombre}.\n¿En qué te puedo ayudar?`;
+  const saludo = saludoSegunHora();
+  const abierto = estaAbierto(negocio);
+  const avisoFueraDeHorario = abierto
+    ? ''
+    : `\n\n🕐 En este momento estamos fuera de nuestro horario de atención (${negocio.config?.horarios_texto || 'consultanos el horario'}), pero puedo ayudarte igual con lo que necesites — si hace falta que te atienda una persona, te responde apenas abramos.`;
+  return `${saludo}! 👋 Soy el asistente de ${negocio.nombre}.\n¿En qué te puedo ayudar?${avisoFueraDeHorario}`;
 }
 
 function mensajePrecios(servicios) {
