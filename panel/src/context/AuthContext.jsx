@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { aplicarAccent, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
+import { tienePermiso } from '../lib/permisos';
 
 const AuthContext = createContext(null);
 
@@ -56,7 +57,7 @@ export function AuthProvider({ children }) {
       // No es dueño de ningún negocio: ¿es un empleado activo de alguno?
       const { data: fila } = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, negocio:negocios(*)')
+        .select('id, nombre, rol, permisos_extra, negocio:negocios(*)')
         .eq('auth_user_id', session.user.id)
         .eq('activo', true)
         .maybeSingle();
@@ -64,7 +65,9 @@ export function AuthProvider({ children }) {
       if (!activo) return;
 
       setNegocio(fila?.negocio || null);
-      setUsuario(fila ? { id: fila.id, nombre: fila.nombre, rol: fila.rol } : null);
+      setUsuario(
+        fila ? { id: fila.id, nombre: fila.nombre, rol: fila.rol, permisos_extra: fila.permisos_extra || [] } : null
+      );
       setCargando(false);
     }
 
@@ -106,10 +109,11 @@ export function AuthProvider({ children }) {
   // que tenga su fila en 'usuarios'.
   const rol = usuario?.rol || 'dueno';
   const esDueno = rol === 'dueno';
+  const puede = (permiso) => tienePermiso({ esDueno, rol, permisosExtra: usuario?.permisos_extra }, permiso);
 
   return (
     <AuthContext.Provider
-      value={{ session, negocio, usuario, rol, esDueno, cargando, signIn, signOut, actualizarConfigLocal, actualizarNegocioLocal }}
+      value={{ session, negocio, usuario, rol, esDueno, puede, cargando, signIn, signOut, actualizarConfigLocal, actualizarNegocioLocal }}
     >
       {children}
     </AuthContext.Provider>

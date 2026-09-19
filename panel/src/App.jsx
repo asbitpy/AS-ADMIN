@@ -22,7 +22,7 @@ import AdminNegocios from './pages/AdminNegocios';
 import { useEsEscritorio } from './hooks/useEsEscritorio';
 
 export default function App() {
-  const { session, negocio, cargando, esDueno, rol } = useAuth();
+  const { session, negocio, cargando, esDueno, puede } = useAuth();
   const { esEscritorio } = useEsEscritorio();
 
   if (cargando) {
@@ -42,7 +42,8 @@ export default function App() {
   const tieneRetail = modulos.includes('inventario') || modulos.includes('pos');
   // Config toca datos del negocio: solo dueño/gerente. Un cajero o
   // vendedor que teclee la URL a mano cae a "/", no ve el formulario.
-  const puedeConfigurar = rol === 'dueno' || rol === 'gerente';
+  // Cada área se abre con su permiso: dueño/gerente lo tienen siempre,
+  // el resto solo si se lo marcaron en Equipo (lib/permisos.js).
 
   return (
     <Routes>
@@ -87,17 +88,17 @@ export default function App() {
               (cualquiera del equipo ficha su propia jornada) ni de módulo
               (sirve tanto a agenda como a retail). */}
           {esEscritorio && <Route path="/jornadas" element={<Jornadas />} />}
-          {puedeConfigurar && <Route path="/finanzas" element={<Finanzas />} />}
+          {puede('ver_finanzas') && <Route path="/finanzas" element={<Finanzas />} />}
           {esDueno && <Route path="/equipo" element={<Equipo />} />}
-          {puedeConfigurar && <Route path="/configuracion" element={<Configuracion />} />}
+          {puede('configurar') && <Route path="/configuracion" element={<Configuracion />} />}
           {/* Proveedores, Compras, Caja e Inventario: pantallas nuevas,
               solo escritorio (ver feedback-asadmin-movil-congelado).
               Mismo nivel de acceso que Finanzas: decisión de gerencia,
               no de mostrador. */}
-          {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/proveedores" element={<Proveedores />} />}
-          {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/compras" element={<Compras />} />}
-          {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/caja" element={<Caja />} />}
-          {esEscritorio && tieneRetail && puedeConfigurar && <Route path="/inventario" element={<Inventario />} />}
+          {esEscritorio && tieneRetail && puede('gestionar_compras') && <Route path="/proveedores" element={<Proveedores />} />}
+          {esEscritorio && tieneRetail && puede('gestionar_compras') && <Route path="/compras" element={<Compras />} />}
+          {esEscritorio && tieneRetail && puede('ver_caja') && <Route path="/caja" element={<Caja />} />}
+          {esEscritorio && tieneRetail && puede('ver_caja') && <Route path="/inventario" element={<Inventario />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       )}

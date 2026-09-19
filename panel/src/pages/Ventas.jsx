@@ -251,6 +251,36 @@ export default function Ventas() {
   const totalVendido = completadas.reduce((acc, v) => acc + Number(v.total), 0);
   const ticketPromedio = completadas.length ? Math.round(totalVendido / completadas.length) : 0;
 
+  // Solo escritorio: ranking de productos del período (sobre las ventas
+  // completadas que se ven con los filtros actuales).
+  const [masVendidos, setMasVendidos] = useState([]);
+  const idsCompletadas = completadas.map((v) => v.id).join(',');
+  useEffect(() => {
+    if (!esEscritorio || !idsCompletadas) {
+      setMasVendidos([]);
+      return;
+    }
+    let vigente = true;
+    supabase
+      .from('venta_items')
+      .select('cantidad, precio_unitario, descuento, producto:productos(nombre)')
+      .in('venta_id', idsCompletadas.split(','))
+      .then(({ data }) => {
+        if (!vigente) return;
+        const mapa = {};
+        for (const it of data || []) {
+          const nombre = it.producto?.nombre || 'Producto eliminado';
+          const fila = (mapa[nombre] ||= { nombre, unidades: 0, monto: 0 });
+          fila.unidades += it.cantidad;
+          fila.monto += it.cantidad * it.precio_unitario - it.descuento;
+        }
+        setMasVendidos(Object.values(mapa).sort((a, b) => b.unidades - a.unidades).slice(0, 5));
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [esEscritorio, idsCompletadas]);
+
   // Mismo criterio que los CSV de Finanzas: ordenado cronológicamente,
   // con Ingreso separado de Anulado, y quién vendió cada una.
   function exportarVentasCSV() {
@@ -423,6 +453,30 @@ export default function Ventas() {
         <MetricPill label="Ventas" value={completadas.length} />
         <MetricPill label="Ticket prom." value={formatoGsCompacto(ticketPromedio)} compact />
       </div>
+
+      {esEscritorio && masVendidos.length > 0 && (
+        <div className="rounded-2xl bg-surface p-4 shadow-card">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Más vendidos del período</p>
+          <div className="mt-3 space-y-2.5">
+            {masVendidos.map((p) => (
+              <div key={p.nombre}>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="truncate text-ink">{p.nombre}</span>
+                  <span className="ml-3 shrink-0 text-xs text-muted">
+                    {p.unidades} u. · <span className="font-mono text-accent">{formatoGsCompacto(p.monto)}</span>
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-base">
+                  <div
+                    className="h-1.5 rounded-full bg-accent"
+                    style={{ width: `${Math.max(4, (p.unidades / masVendidos[0].unidades) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {reservadas.length > 0 && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">

@@ -17,6 +17,7 @@ import {
   Banknote,
   Boxes,
   Clock,
+  LifeBuoy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
@@ -30,15 +31,20 @@ const ETIQUETAS_ROL = {
   profesional: 'Profesional',
 };
 
+// Soporte de AS BIT: WhatsApp (se puede cambiar con VITE_SOPORTE_WHATSAPP,
+// solo dígitos con código de país); si quedara vacío, cae al mail.
+const SOPORTE_WHATSAPP = (import.meta.env.VITE_SOPORTE_WHATSAPP || '595991932406').replace(/\D/g, '');
+const SOPORTE_EMAIL = 'asbit.py@gmail.com';
+
 export default function Layout() {
-  const { negocio, usuario, rol, esDueno, signOut } = useAuth();
+  const { negocio, usuario, rol, esDueno, puede, signOut } = useAuth();
   const { esEscritorio, forzado, forzar } = useEsEscritorio();
   const modulos = negocio?.modulos_activos || ['agenda'];
   const tieneRetail = modulos.includes('inventario') || modulos.includes('pos');
   const tieneAgenda = modulos.includes('agenda');
   // Config toca datos del negocio (horarios, precios, módulos): solo
   // para quien puede tomar esas decisiones. Un cajero o vendedor no la ve.
-  const puedeConfigurar = rol === 'dueno' || rol === 'gerente';
+  // Cada área depende de un permiso puntual (lib/permisos.js).
 
   // Estirar el diseño de celular a una pantalla grande sin más queda
   // "una columna flaca en un mar de negro" — todo se ve chico porque el
@@ -71,9 +77,9 @@ export default function Layout() {
     tieneRetail && { to: '/productos', label: 'Productos', icon: Package, grupo: 'vender' },
     // Clientes es del núcleo común: sirve tanto a servicio como a retail
     { to: '/clientes', label: 'Clientes', icon: Users, grupo: 'atender' },
-    puedeConfigurar && { to: '/finanzas', label: 'Finanzas', icon: Wallet, grupo: 'administrar' },
+    puede('ver_finanzas') && { to: '/finanzas', label: 'Finanzas', icon: Wallet, grupo: 'administrar' },
     esDueno && { to: '/equipo', label: 'Equipo', icon: UserCog, grupo: 'administrar' },
-    puedeConfigurar && { to: '/configuracion', label: 'Config', icon: Settings, grupo: 'administrar' },
+    puede('configurar') && { to: '/configuracion', label: 'Config', icon: Settings, grupo: 'administrar' },
   ].filter(Boolean);
 
   // Con más de 5 pestañas la barra queda apretada en un celular chico:
@@ -96,15 +102,14 @@ export default function Layout() {
       { to: '/conversaciones', label: 'Conversaciones', icon: MessageCircle },
       { to: '/jornadas', label: 'Jornadas', icon: Clock },
     ],
-    vender:
-      tieneRetail && puedeConfigurar
-        ? [
-            { to: '/proveedores', label: 'Proveedores', icon: Truck },
-            { to: '/compras', label: 'Compras', icon: ClipboardList },
-            { to: '/caja', label: 'Caja', icon: Banknote },
-            { to: '/inventario', label: 'Inventario', icon: Boxes },
-          ]
-        : [],
+    vender: tieneRetail
+      ? [
+          puede('gestionar_compras') && { to: '/proveedores', label: 'Proveedores', icon: Truck },
+          puede('gestionar_compras') && { to: '/compras', label: 'Compras', icon: ClipboardList },
+          puede('ver_caja') && { to: '/caja', label: 'Caja', icon: Banknote },
+          puede('ver_caja') && { to: '/inventario', label: 'Inventario', icon: Boxes },
+        ].filter(Boolean)
+      : [],
   };
 
   return (
@@ -158,6 +163,20 @@ export default function Layout() {
 
         <div className="border-t border-line px-3 py-2">
           {!esDueno && usuario?.nombre && <p className="truncate px-3 pb-1.5 text-xs text-muted">{usuario.nombre}</p>}
+          <a
+            href={
+              SOPORTE_WHATSAPP
+                ? `https://wa.me/${SOPORTE_WHATSAPP}?text=${encodeURIComponent(
+                    `Hola AS BIT, tengo un problema técnico en AS ADMIN (${negocio?.nombre}).`
+                  )}`
+                : `mailto:${SOPORTE_EMAIL}?subject=${encodeURIComponent(`Problema técnico en AS ADMIN — ${negocio?.nombre}`)}`
+            }
+            target="_blank"
+            rel="noreferrer"
+            className="mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft"
+          >
+            <LifeBuoy size={16} /> ¿Problemas técnicos?
+          </a>
           <button
             onClick={signOut}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted active:text-danger"

@@ -13,16 +13,16 @@ Documento de referencia único: todo lo que hay que ver, tener y hacer para llev
 - [x] Repositorio Git creado (`asbitpy/AS-ADMIN`)
 - [ ] **Meta Business Manager** de AS BIT creado
 - [ ] **Verificación de negocio en Meta** iniciada (⚠️ es el trámite que más demora — arrancarlo primero; pueden pedir registro comercial, factura de servicios, etc.)
-- [ ] App creada en **Meta for Developers** con el producto WhatsApp agregado
+- [x] App creada en **Meta for Developers** con el producto WhatsApp agregado
 - [ ] ⚠️ Copiar el **App Secret** de esa app (Configuración básica, NO el token de WhatsApp) y cargarlo como `WHATSAPP_APP_SECRET` en el `.env` del backend — sin esto el webhook rechaza todos los mensajes entrantes a propósito (ver `backend/lib/seguridadWebhook.js`)
 - [ ] Número del negocio piloto registrado → anotar su `phone_number_id` y token
 - [ ] **Plantillas enviadas a aprobación** (categoría utility): recordatorio 24hs, recordatorio mismo día (payloads `rec_confirmo`/`rec_reprogramar`/`rec_cancelar`), alerta de stock bajo (`template_alerta_stock`, ver sección 11) y aviso de derivación a humano (`template_derivacion_humano`, sección 3)
-- [ ] **API key de Claude** (Anthropic) activa
+- [x] **API key de Claude** (Anthropic) activa (cargada; hoy sin saldo)
 - [x] Proyecto de **Supabase** creado (base de datos + auth) — ya en uso, migraciones 001-017 corridas
 - [ ] Hosting elegido para el backend (Railway / Render) y para el panel (Vercel) — el backend **todavía no está desplegado en ningún lado**, solo corrido localmente para pruebas puntuales
 - [ ] **Dominio** comprado (asadmin.com.py o similar) — revisar disponibilidad
-- [ ] `ngrok` (o similar) instalado para probar el webhook en desarrollo
-- [ ] Crear el bucket **`productos-fotos`** en Supabase Storage (público: sí) — paso manual, no lo crea ninguna migración (ver `005_retail_rls_y_fotos.sql`)
+- [x] `ngrok` (o similar) instalado para probar el webhook en desarrollo
+- [x] Crear el bucket **`productos-fotos`** en Supabase Storage (público: sí) — paso manual, no lo crea ninguna migración (ver `005_retail_rls_y_fotos.sql`)
 - [x] Crear el bucket **`comprobantes-pago`** en Supabase Storage (privado: sí) — hecho
 
 ## 2. Base de datos
@@ -158,7 +158,7 @@ Pendiente para cerrar la Fase 1:
 - [ ] Página de AS ADMIN dentro del sitio de AS BIT (con SEO local: "sistema de turnos por WhatsApp Paraguay", etc.)
 - [ ] Material de venta con las métricas reales del piloto para salir a buscar los clientes 2-5
 - [x] Manual de uso del panel y el bot de WhatsApp — dos formatos: página web (`claude.ai/artifact/GqS72F4XFoFfnF4tZFsh9e`, con el mismo estilo del producto) y PowerPoint descargable con el logo y los colores reales de AS BIT (`backend/scripts/subir-manual.js` lo sube al bucket público `recursos-publicos` de Supabase Storage). Los dos, con link directo desde Configuración → arriba de todo
-- [ ] Mini link/botón dentro del panel ("¿Problemas técnicos?") que comunique directo con AS BIT — pausado para el final, junto con el manual
+- [x] Botón "¿Problemas técnicos?" fijo en la barra lateral (escritorio), arriba de Cerrar sesión: abre el WhatsApp de AS BIT (0991 932406; se puede cambiar con `VITE_SOPORTE_WHATSAPP`)
 - [ ] La "Página de AS ADMIN dentro del sitio de AS BIT" (línea de arriba) cubre también el pedido de una página para promocionar el sistema — mismo ítem, sin duplicar
 
 ## 9. Operación continua
@@ -178,9 +178,9 @@ Pendiente para cerrar la Fase 1:
 - [x] Panel: comprobante de pago adjunto a la venta (respaldo, nunca verificación automática — ver la nota en sección 6)
 - [x] Definir `modulos_activos` al dar de alta un negocio desde una UI (`/asbit/negocios`: checkboxes de módulos + plan, y presets por tipo de negocio — consultorio, peluquería, tienda, gastronomía, mixto — que completan rubro y módulos con un clic)
 - [x] Panel: vista "Hoy" propia para negocios retail (`HoyRetail.jsx`) — resumen del día, caja, alertas de stock/conversaciones, últimas ventas
-- [ ] Reporte de productos más vendidos
-- [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
-- [ ] Usuarios multiusuario con roles y permisos más finos (hoy existen los roles base de la migración 011; falta UI para permisos por excepción)
+- [x] Reporte de productos más vendidos (escritorio: top 5 del período en Ventas, con unidades e importe, respeta los filtros)
+- [x] Lector de código de barras: se decidió quedar solo con lector USB (ya funciona en Vender); el escaneo con cámara se descartó
+- [x] Permisos más finos por persona: en Equipo → ficha → "Permisos especiales" se marca qué área puede ver además de su rol (Finanzas, Caja e Inventario, Proveedores y Compras, Configuración, anular ventas). Las rutas y el menú se ocultan según el permiso; ojo: salvo anular ventas (que también lo exige la base), es control de pantallas, no de base de datos
 - [x] Créditos de clientes: seguimiento de deuda desde el panel (ficha del cliente en Clientes) — registrar crédito manual y marcar pagado. **Ya conectado al POS (escritorio):** `Venta.jsx` ofrece "Crédito" como método (también dividido), exige el teléfono del cliente, deja fecha de vencimiento opcional y anota la deuda en `creditos_clientes` ligada a la venta
 
 ## 11. Bot de WhatsApp retail (ver `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md` para el detalle de diseño)

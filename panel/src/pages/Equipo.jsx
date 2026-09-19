@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import { crearCuentaAuth, resetearPassword } from '../lib/backend';
 import MetricPill from '../components/MetricPill';
+import { PERMISOS } from '../lib/permisos';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', descripcion: 'Todo lo operativo. No da de alta empleados.' },
@@ -806,22 +807,31 @@ function FichaEmpleado({ empleado, onVolver, onActualizado, panel = false }) {
         <div className="rounded-2xl bg-surface p-4 shadow-card">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">Permisos especiales</p>
           <p className="mt-0.5 text-xs text-muted">
-            Por default un cajero o vendedor no puede anular ventas — solo dueño y gerente. Marcá esto para darle esa
-            excepción puntual a esta persona.
+            {empleado.rol === 'gerente'
+              ? 'Un gerente ya tiene todos estos accesos.'
+              : 'Por default cada rol ve solo lo suyo. Marcá lo que quieras habilitarle a esta persona además de su rol; se aplica la próxima vez que entre.'}
           </p>
-          <label className="mt-2 flex items-center gap-2 rounded-lg bg-base px-3 py-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={permisosExtra.includes('anular_ventas')}
-              onChange={(e) =>
-                setPermisosExtra((prev) =>
-                  e.target.checked ? [...prev, 'anular_ventas'] : prev.filter((p) => p !== 'anular_ventas')
-                )
-              }
-              className="h-4 w-4 accent-accent"
-            />
-            Puede anular ventas
-          </label>
+          <div className="mt-2 space-y-1.5">
+            {PERMISOS.map((p) => (
+              <label key={p.id} className="flex items-start gap-2 rounded-lg bg-base px-3 py-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  disabled={empleado.rol === 'gerente'}
+                  checked={empleado.rol === 'gerente' || permisosExtra.includes(p.id)}
+                  onChange={(e) =>
+                    setPermisosExtra((prev) =>
+                      e.target.checked ? [...prev, p.id] : prev.filter((x) => x !== p.id)
+                    )
+                  }
+                  className="mt-0.5 h-4 w-4 accent-accent"
+                />
+                <span>
+                  {p.label}
+                  <span className="block text-xs text-muted">{p.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
       )}
 
