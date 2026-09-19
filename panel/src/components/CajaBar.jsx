@@ -73,7 +73,24 @@ export default function CajaBar({ negocioId, onSesionActualizada }) {
       .select('tipo, monto')
       .eq('caja_sesion_id', sesionId);
 
-    const ingresos = (data || []).filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0);
+    // Cada venta genera un ingreso por su total, pero en el cajón solo
+    // queda lo cobrado en EFECTIVO: lo que entró por transferencia, tarjeta,
+    // QR o quedó a crédito no está físicamente en la caja. Sin descontarlo,
+    // el arqueo de cierre daba una diferencia negativa falsa. (Una venta
+    // anulada se compensa sola: su ingreso y su egreso son por el mismo
+    // total, y acá solo se descuentan las ventas todavía completadas.)
+    const { data: ventasSesion } = await supabase
+      .from('ventas')
+      .select('venta_pagos(metodo_pago, monto)')
+      .eq('caja_sesion_id', sesionId)
+      .eq('estado', 'completada');
+    const noEfectivo = (ventasSesion || [])
+      .flatMap((v) => v.venta_pagos || [])
+      .filter((p) => p.metodo_pago !== 'efectivo')
+      .reduce((a, p) => a + Number(p.monto), 0);
+
+    const ingresos =
+      (data || []).filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0) - noEfectivo;
     const egresos = (data || []).filter((m) => m.tipo === 'egreso').reduce((a, m) => a + Number(m.monto), 0);
     setTotales({ ingresos, egresos });
     return { ingresos, egresos };

@@ -69,17 +69,26 @@ async function ofrecerFranjaLiberada({ negocio, servicioId, ts }) {
   await guardarContexto(conversacion.id, { flujo: 'oferta_turno', lista_espera_id: primero.id, servicio_id: servicioId, ts });
   await supabase.from('lista_espera').update({ estado: 'ofrecido' }).eq('id', primero.id);
 
-  await responderBotones(
-    negocio.wa,
-    conversacion.id,
-    primero.cliente.telefono,
-    `¡Buenas noticias! Se liberó un lugar para ${servicio.nombre}: ${agenda.formatearFranjaLarga(ts)} 🙌 ¿Lo tomás?`,
-    [
-      { id: 'oferta_si', title: 'Sí, lo tomo' },
-      { id: 'oferta_no', title: 'No, gracias' },
-    ],
-    'oferta_lista_espera'
-  );
+  try {
+    await responderBotones(
+      negocio.wa,
+      conversacion.id,
+      primero.cliente.telefono,
+      `¡Buenas noticias! Se liberó un lugar para ${servicio.nombre}: ${agenda.formatearFranjaLarga(ts)} 🙌 ¿Lo tomás?`,
+      [
+        { id: 'oferta_si', title: 'Sí, lo tomo' },
+        { id: 'oferta_no', title: 'No, gracias' },
+      ],
+      'oferta_lista_espera'
+    );
+  } catch (err) {
+    // Si el mensaje no salió (token vencido, número inválido), la persona
+    // no puede haber "recibido una oferta": la devolvemos a la cola en vez
+    // de dejarla marcada como ofrecida sin que nadie le haya escrito.
+    console.error(`No se pudo ofrecer el turno liberado a lista_espera ${primero.id}:`, err);
+    await supabase.from('lista_espera').update({ estado: 'esperando' }).eq('id', primero.id);
+    await guardarContexto(conversacion.id, {});
+  }
 }
 
 /** Devuelve true si manejó el mensaje; false si no hay oferta en curso. */

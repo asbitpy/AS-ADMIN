@@ -7,6 +7,7 @@ import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import TurnoCard from '../components/TurnoCard';
 import EstadoBadge from '../components/EstadoBadge';
 import MetricPill from '../components/MetricPill';
+import { normalizarTelefono, variantesTelefono } from '../lib/telefono';
 
 const FILTROS = [
   { id: 'proximos', label: 'Próximos' },
@@ -485,12 +486,13 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
       .from('clientes')
       .select('id')
       .eq('negocio_id', negocio.id)
-      .eq('telefono', telefono)
+      .in('telefono', variantesTelefono(telefono))
+      .limit(1)
       .maybeSingle();
     if (existente) return existente.id;
     const { data: creado, error: errCliente } = await supabase
       .from('clientes')
-      .insert({ negocio_id: negocio.id, nombre, telefono })
+      .insert({ negocio_id: negocio.id, nombre, telefono: normalizarTelefono(telefono) })
       .select('id')
       .single();
     if (errCliente) return null;
@@ -502,7 +504,7 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
     const hasta = new Date(desde.getTime() + duracionMin * 60000);
     let query = supabase
       .from('turnos')
-      .select('id, fecha_hora, servicio:servicios(duracion_minutos)')
+      .select('id, fecha_hora, duracion_minutos, servicio:servicios(duracion_minutos)')
       .eq('negocio_id', negocio.id)
       .not('estado', 'in', '(cancelado,no_show)')
       .gte('fecha_hora', new Date(desde.getTime() - 6 * 3600000).toISOString())
@@ -511,7 +513,7 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
     const { data } = await query;
     return (data || []).some((t) => {
       const tIni = new Date(t.fecha_hora);
-      const tFin = new Date(tIni.getTime() + (t.servicio?.duracion_minutos || 30) * 60000);
+      const tFin = new Date(tIni.getTime() + (t.duracion_minutos || t.servicio?.duracion_minutos || 30) * 60000);
       return tIni < hasta && desde < tFin;
     });
   }
@@ -534,7 +536,7 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
       return;
     }
 
-    const fechaHoraISO = new Date(`${fecha}T${hora}:00`).toISOString();
+    const fechaHoraISO = new Date(`${fecha}T${hora}:00-03:00`).toISOString();
 
     if (!confirmando) {
       setGuardando(true);
@@ -563,6 +565,7 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
       profesional_id: profesionalId || null,
       servicio_id: servicioId,
       fecha_hora: fechaHoraISO,
+      duracion_minutos: servicioElegido?.duracion_minutos || 30,
       estado: 'confirmado',
       origen: 'manual',
       monto: Number(monto) || servicioElegido?.precio || 0,
@@ -571,7 +574,11 @@ function NuevoTurnoModal({ negocio, profesionales, onCerrar, onCreado }) {
 
     setGuardando(false);
     if (errTurno) {
-      setError('No se pudo guardar el turno. Probá de nuevo.');
+      setError(
+        errTurno.code === '23P01'
+          ? 'Ese horario se superpone con otro turno y la agenda no lo permite. Elegí otro horario.'
+          : 'No se pudo guardar el turno. Probá de nuevo.'
+      );
       return;
     }
     onCreado();

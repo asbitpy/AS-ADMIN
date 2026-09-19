@@ -9,6 +9,7 @@ import MetricPill from '../components/MetricPill';
 import GastosFijos from '../components/GastosFijos';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import { descargarPDF } from '../lib/pdf';
+import { armarCSV } from '../lib/csv';
 
 const PERIODOS = [
   { id: 'hoy', label: 'Hoy' },
@@ -1212,7 +1213,7 @@ export default function Finanzas() {
                           timeZone: 'America/Asuncion',
                           day: '2-digit',
                           month: '2-digit',
-                        }).format(new Date(m.fecha))}
+                        }).format(new Date(`${m.fecha}T12:00:00-03:00`))}
                         {m.notas ? ` · ${m.notas}` : ''}
                       </p>
                     </div>
@@ -1253,7 +1254,7 @@ export default function Finanzas() {
                           timeZone: 'America/Asuncion',
                           day: '2-digit',
                           month: '2-digit',
-                        }).format(new Date(m.fecha))}
+                        }).format(new Date(`${m.fecha}T12:00:00-03:00`))}
                       </td>
                       <td className="px-4 py-3 text-ink">
                         <div className="flex items-center gap-1.5">
@@ -1470,7 +1471,7 @@ export default function Finanzas() {
                 <span className="text-muted">Fecha</span>
                 <span className="text-ink">
                   {new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', day: '2-digit', month: '2-digit', year: 'numeric' }).format(
-                    new Date(movimientoAbierto.fecha)
+                    new Date(`${movimientoAbierto.fecha}T12:00:00-03:00`)
                   )}
                 </span>
               </div>

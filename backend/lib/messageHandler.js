@@ -96,20 +96,31 @@ async function handleIncomingMessage(rawBody) {
 // consultar" se entienden como un solo pedido en vez de dos respuestas
 // separadas y descoordinadas.
 const DEBOUNCE_TEXTO_LIBRE_MS = 15000;
+// Tope: aunque el cliente siga escribiendo, se responde como máximo a los
+// 60s del primer mensaje y se juntan a lo sumo 10 mensajes (si no, uno que
+// escribe cada 14s nunca recibía respuesta y el prompt crecía sin límite).
+const DEBOUNCE_MAX_ESPERA_MS = 60000;
+const DEBOUNCE_MAX_MENSAJES = 10;
 // conversacion.id -> { entradas, negocio, cliente, esNueva, to, timer }
 const buffersPendientes = new Map();
 
 function bufferizarYProgramar({ negocio, cliente, conversacion, esNueva, entrada, to }) {
   const existente = buffersPendientes.get(conversacion.id);
   if (existente) {
-    existente.entradas.push(entrada);
+    if (existente.entradas.length < DEBOUNCE_MAX_MENSAJES) existente.entradas.push(entrada);
     clearTimeout(existente.timer);
-    existente.timer = setTimeout(() => dispararBuffer(conversacion.id), DEBOUNCE_TEXTO_LIBRE_MS);
+    const yaEsperado = Date.now() - existente.inicio;
+    const espera =
+      existente.entradas.length >= DEBOUNCE_MAX_MENSAJES
+        ? 0
+        : Math.max(0, Math.min(DEBOUNCE_TEXTO_LIBRE_MS, DEBOUNCE_MAX_ESPERA_MS - yaEsperado));
+    existente.timer = setTimeout(() => dispararBuffer(conversacion.id), espera);
     return;
   }
 
   buffersPendientes.set(conversacion.id, {
     entradas: [entrada],
+    inicio: Date.now(),
     negocio,
     cliente,
     esNueva,
@@ -194,10 +205,14 @@ async function procesarMensajeCliente(msg, negocio) {
     return;
   }
 
-  await enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to: msg.from });
+  const esBoton = !!(msg.interactiveReplyId || msg.templateButtonPayload);
+  await enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to: msg.from, esBoton });
 }
 
-async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to }) {
+// esBoton: la entrada viene del id de un botón/lista. Un texto ESCRITO que
+// casualmente diga "var_<id>" o "menu_agendar" no se toma como botón: si
+// no, un cliente podía disparar pasos de flujo con ids inventados.
+async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva, to, esBoton = false }) {
   // Conversación nueva y el mensaje es un simple saludo: bienvenida directa,
   // sin gastar una llamada al clasificador.
   if (esNueva && esSaludoSimple(entrada)) {
@@ -205,14 +220,14 @@ async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva
   }
 
   // 1) ¿La entrada es un botón con intención codificada? (sin Claude)
-  let intencion = MAPA_DETERMINISTICO[entrada] || null;
+  let intencion = esBoton ? MAPA_DETERMINISTICO[entrada] || null : null;
   let clasificacion = null;
   // Si el paso 3 ya trajo el catálogo para clasificar, lo reusamos más
   // abajo (ver_catalogo/consultar_stock) en vez de repetir la consulta.
   let productosYaCargados = null;
 
   // 2) ¿Es una respuesta de un paso de un flujo guiado en curso? (sin Claude)
-  if (!intencion && /^(serv_|franja_|pq_|le_|prof_)/.test(entrada)) {
+  if (esBoton && !intencion && /^(serv_|franja_|pq_|le_|prof_)/.test(entrada)) {
     const manejado = await flujoAgendar.continuar({
       entrada,
       clasificacion: null,
@@ -223,7 +238,7 @@ async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva
     });
     if (manejado) return;
   }
-  if (!intencion && /^(prod_|var_|pedido_)/.test(entrada)) {
+  if (esBoton && !intencion && /^(prod_|var_|pedido_)/.test(entrada)) {
     const manejado = await flujoPedido.continuar({
       entrada,
       clasificacion: null,
@@ -234,7 +249,7 @@ async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva
     });
     if (manejado) return;
   }
-  if (!intencion && /^oferta_/.test(entrada)) {
+  if (esBoton && !intencion && /^oferta_/.test(entrada)) {
     const manejado = await flujoListaEspera.continuar({ entrada, negocio, conversacion, to });
     if (manejado) return;
   }
@@ -389,11 +404,17 @@ async function gestionarTurnoExistente({ intencion, negocio, cliente, conversaci
 
   if (intencion === 'cancelar_turno') {
     await supabase.from('turnos').update({ estado: 'cancelado' }).eq('id', turno.id);
-    await flujoListaEspera.ofrecerFranjaLiberada({
-      negocio,
-      servicioId: turno.servicio_id,
-      ts: new Date(turno.fecha_hora).getTime(),
-    });
+    // Si ofrecer el lugar liberado falla, la cancelación ya está hecha:
+    // no puede terminar en "tuve un problema" ni pedir cancelar de nuevo.
+    try {
+      await flujoListaEspera.ofrecerFranjaLiberada({
+        negocio,
+        servicioId: turno.servicio_id,
+        ts: new Date(turno.fecha_hora).getTime(),
+      });
+    } catch (err) {
+      console.error('No se pudo ofrecer el turno liberado a la lista de espera:', err);
+    }
     return responderTexto(negocio.wa, conversacion.id, to, respuestas.turnoCancelado(), intencion);
   }
 

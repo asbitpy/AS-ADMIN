@@ -9,7 +9,6 @@ export const PERMISOS = [
   { id: 'ver_finanzas', label: 'Ver Finanzas', desc: 'Ingresos, egresos, gastos fijos y reportes del negocio.' },
   { id: 'ver_caja', label: 'Ver Caja e Inventario', desc: 'Historial de cajas y movimientos de stock (escritorio).' },
   { id: 'gestionar_compras', label: 'Gestionar Proveedores y Compras', desc: 'Cargar proveedores y órdenes de compra (escritorio).' },
-  { id: 'configurar', label: 'Entrar a Configuración', desc: 'Horarios, servicios, datos del negocio y apariencia.' },
   { id: 'anular_ventas', label: 'Anular ventas', desc: 'Por default solo dueño y gerente pueden anular una venta.' },
 ];
 

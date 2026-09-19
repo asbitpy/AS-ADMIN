@@ -8,6 +8,7 @@ import CarritoItem from '../components/CarritoItem';
 import SelectorVariante from '../components/SelectorVariante';
 import CajaBar from '../components/CajaBar';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
+import { normalizarTelefono, variantesTelefono } from '../lib/telefono';
 
 const METODOS = [
   { id: 'efectivo', label: 'Efectivo' },
@@ -247,7 +248,8 @@ export default function Venta() {
       .from('clientes')
       .select('id, nombre')
       .eq('negocio_id', negocio.id)
-      .eq('telefono', telefono)
+      .in('telefono', variantesTelefono(telefono))
+      .limit(1)
       .maybeSingle();
 
     if (existente) {
@@ -261,7 +263,7 @@ export default function Venta() {
 
     const { data: nuevo } = await supabase
       .from('clientes')
-      .insert({ negocio_id: negocio.id, telefono, nombre: nombre || 'Sin nombre' })
+      .insert({ negocio_id: negocio.id, telefono: normalizarTelefono(telefono), nombre: nombre || 'Sin nombre' })
       .select('id')
       .single();
     return nuevo?.id || null;
@@ -287,6 +289,11 @@ export default function Venta() {
 
     try {
       const clienteId = await resolverCliente();
+      // Antes de cobrar: una venta a crédito sin cliente registrado
+      // quedaría cobrada pero sin nadie que la deba.
+      if (montoCredito > 0 && !clienteId) {
+        throw new Error('CLIENTE_CREDITO');
+      }
 
       // Sin precio: lo pone el servidor desde el catálogo. Si lo mandara
       // el navegador, cualquiera podría cobrarse lo que quisiera.
@@ -369,7 +376,9 @@ export default function Venta() {
     } catch (err) {
       console.error(err);
       setError(
-        err.message?.includes('Stock insuficiente')
+        err.message === 'CLIENTE_CREDITO'
+          ? 'No se pudo registrar al cliente, y sin él no se puede vender a crédito. Revisá el teléfono e intentá de nuevo.'
+          : err.message?.includes('Stock insuficiente')
           ? 'Uno de los productos ya no tiene stock suficiente. Revisá el carrito.'
           : 'No se pudo registrar la venta. Probá de nuevo.'
       );
@@ -454,7 +463,12 @@ export default function Venta() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carrito, cobrando, resultados, indiceSeleccionado, productoParaVariante, busqueda, pagos]);
+    // Todo lo que lee cobrar() tiene que estar acá: si no, F2 cobra con el
+    // teléfono/comprobante/caja que había antes del último cambio.
+  }, [
+    carrito, cobrando, resultados, indiceSeleccionado, productoParaVariante, busqueda, pagos,
+    telefonoCliente, nombreCliente, comprobante, vencimientoCredito, montoRecibido, cajaSesionId, negocio,
+  ]);
 
   if (ventaConfirmada) {
     return (

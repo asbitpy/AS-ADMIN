@@ -58,7 +58,13 @@ function normalizar(texto) {
  * sea dígito sin perder información. */
 function numeroLimpio(texto) {
   if (texto === undefined || texto === null || texto === '') return null;
-  const limpio = texto.toString().replace(/[^\d]/g, '');
+  let crudo = texto.toString().trim();
+  if (crudo.startsWith('-')) return null; // un precio/stock negativo no es válido
+  // "150.000,00" o "1500,5": un punto/coma seguido de 1 o 2 dígitos al final
+  // son decimales (Excel/Sheets los exportan así) — se descartan. Con 3
+  // dígitos ("150.000") sigue siendo separador de miles.
+  crudo = crudo.replace(/[.,]\d{1,2}$/, '');
+  const limpio = crudo.replace(/[^\d]/g, '');
   return limpio ? Number(limpio) : null;
 }
 

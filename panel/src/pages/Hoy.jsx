@@ -140,7 +140,11 @@ export default function Hoy() {
   async function cargarDatos() {
     setCargando(true);
     const { desde, hasta } = rangoDiaISO(fechaSeleccionada);
-    const hace7dias = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    // Fecha de Paraguay (UTC-3), no la del ISO en UTC: pasadas las 21:00 la
+    // fecha UTC ya es "mañana" y la ventana de la semana perdía un día.
+    const hace7dias = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Asuncion' }).format(
+      new Date(Date.now() - 7 * 86400000)
+    );
 
     const [turnosRes, derivadasRes, ingresoRes] = await Promise.all([
       supabase

@@ -7,6 +7,7 @@ import { urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
 import { descargarPDF } from '../lib/pdf';
+import { armarCSV } from '../lib/csv';
 
 // Mismo criterio que Productos.jsx: un monto de más de 7 cifras no entra
 // en un tercio de pantalla, así que se abrevia en millones.
@@ -401,7 +402,7 @@ export default function Ventas() {
               className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="todos">Todos los métodos</option>
-              {METODOS_PAGO.map((m) => (
+              {[...METODOS_PAGO, 'credito'].map((m) => (
                 <option key={m} value={m}>
                   {METODOS_LABEL[m]}
                 </option>
@@ -485,6 +486,13 @@ export default function Ventas() {
             ? '1 pedido por WhatsApp pendiente de retiro.'
             : `${reservadas.length} pedidos por WhatsApp pendientes de retiro.`}
         </div>
+      )}
+
+      {!cargando && ventas.length >= 200 && (
+        <p className="rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">
+          Se muestran las últimas 200 ventas: los totales y las exportaciones no incluyen las anteriores. Elegí un
+          período más corto para verlas todas.
+        </p>
       )}
 
       {cargando && <p className="pt-6 text-center text-sm text-muted">Cargando…</p>}

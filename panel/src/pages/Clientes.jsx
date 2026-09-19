@@ -529,7 +529,7 @@ function FichaCliente({ cliente, esEscritorio, onVolver, onActualizado }) {
                       {cr.estado === 'pagado' && <span className="ml-1.5 text-xs text-accent">· pagado</span>}
                     </p>
                     <p className="text-xs text-muted">
-                      {cr.fecha_vencimiento ? `Vence ${fechaTexto(cr.fecha_vencimiento)}` : 'Sin vencimiento'}
+                      {cr.fecha_vencimiento ? `Vence ${cr.fecha_vencimiento.split('-').reverse().join('/')}` : 'Sin vencimiento'}
                     </p>
                   </div>
                 </div>

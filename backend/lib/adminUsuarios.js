@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const supabase = require('./supabase');
 
 // Antes, la única forma de crear una cuenta de Supabase Auth para un
@@ -13,7 +14,7 @@ const CARACTERES_PASSWORD = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456
 function generarPasswordTemporal(longitud = 10) {
   let resultado = '';
   for (let i = 0; i < longitud; i++) {
-    resultado += CARACTERES_PASSWORD[Math.floor(Math.random() * CARACTERES_PASSWORD.length)];
+    resultado += CARACTERES_PASSWORD[crypto.randomInt(CARACTERES_PASSWORD.length)];
   }
   return resultado;
 }

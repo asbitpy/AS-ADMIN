@@ -9,26 +9,30 @@ const { procesarResumenSemanal } = require('./lib/resumenSemanal');
 const { verificarFirmaMeta } = require('./lib/seguridadWebhook');
 const { usuarioDesdeToken, crearCuentaAuth, resetearPassword } = require('./lib/adminUsuarios');
 
-// Limitador simple en memoria para /api/crear-cuenta y /api/resetear-password:
-// sin esto, un token válido filtrado (o un empleado con malas intenciones)
-// podía crear cuentas o probar resets sin ningún freno. No sirve para varios
-// servidores (mismo caso que los NOTA de los setInterval de abajo), pero acá
-// alcanza. 10 intentos cada 15 minutos por IP.
-function limitarPorIp(maxIntentos = 10, ventanaMs = 15 * 60 * 1000) {
-  const intentos = new Map(); // ip -> [timestamps]
-  return (req, res, next) => {
-    const ip = req.ip;
-    const ahora = Date.now();
-    const previos = (intentos.get(ip) || []).filter((t) => ahora - t < ventanaMs);
-    if (previos.length >= maxIntentos) {
-      return res.status(429).json({ error: 'Demasiados intentos, probá de nuevo en un rato.' });
-    }
-    previos.push(ahora);
-    intentos.set(ip, previos);
-    next();
-  };
+// Limitador en memoria para /api/crear-cuenta y /api/resetear-password.
+// Cuenta por USUARIO ya autenticado (no por IP: detrás del proxy de Render
+// todos compartían la misma IP y un anónimo podía trabar a todos). 10
+// intentos cada 15 minutos. No sirve para varios servidores (mismo caso
+// que los NOTA de los setInterval de abajo), pero acá alcanza.
+const intentosPorUsuario = new Map(); // usuarioId -> [timestamps]
+function excedioLimite(usuarioId, maxIntentos = 10, ventanaMs = 15 * 60 * 1000) {
+  const ahora = Date.now();
+  const previos = (intentosPorUsuario.get(usuarioId) || []).filter((t) => ahora - t < ventanaMs);
+  if (previos.length >= maxIntentos) {
+    intentosPorUsuario.set(usuarioId, previos);
+    return true;
+  }
+  previos.push(ahora);
+  intentosPorUsuario.set(usuarioId, previos);
+  return false;
 }
-const limitarCuentas = limitarPorIp();
+// Limpia usuarios inactivos para que el Map no crezca para siempre.
+setInterval(() => {
+  const limite = Date.now() - 15 * 60 * 1000;
+  for (const [id, ts] of intentosPorUsuario) {
+    if (ts.every((t) => t < limite)) intentosPorUsuario.delete(id);
+  }
+}, 15 * 60 * 1000).unref();
 
 const app = express();
 // CORS solo hace falta para /api/* (lo llama el panel desde el
@@ -46,9 +50,10 @@ app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 // Solo el dueño de un negocio (para su propio equipo) o staff_asbit
 // (para dar de alta un negocio cliente nuevo) puede crear cuentas —
 // crearCuentaAuth() lo verifica con puedeCrearCuenta().
-app.post('/api/crear-cuenta', limitarCuentas, async (req, res) => {
+app.post('/api/crear-cuenta', async (req, res) => {
   const usuario = await usuarioDesdeToken(req.headers.authorization);
   if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
+  if (excedioLimite(usuario.id)) return res.status(429).json({ error: 'Demasiados intentos, probá de nuevo en un rato.' });
 
   const { email, nombre, password } = req.body || {};
   if (!email || !email.trim()) return res.status(400).json({ error: 'Falta el email.' });
@@ -70,9 +75,10 @@ app.post('/api/crear-cuenta', limitarCuentas, async (req, res) => {
 // así que no puede entrar a cambiársela sola. resetearPassword() decide
 // adentro si quien llama tiene permiso (su propia cuenta, el dueño de
 // su negocio, o staff de AS BIT); acá solo se exige estar logueado.
-app.post('/api/resetear-password', limitarCuentas, async (req, res) => {
+app.post('/api/resetear-password', async (req, res) => {
   const usuario = await usuarioDesdeToken(req.headers.authorization);
   if (!usuario) return res.status(401).json({ error: 'No autenticado.' });
+  if (excedioLimite(usuario.id)) return res.status(429).json({ error: 'Demasiados intentos, probá de nuevo en un rato.' });
 
   const { auth_user_id, password } = req.body || {};
   if (!auth_user_id) return res.status(400).json({ error: 'Falta auth_user_id.' });

@@ -104,17 +104,45 @@ export default function Jornadas() {
   ];
 
   const miAuthId = session?.user?.id;
-  const miFichajeAbierto = fichajesSemana.find((f) => f.usuario_id === miAuthId && !f.salida);
+  // El fichaje abierto se busca en la base, no en la semana que se está
+  // mirando: si no, al cambiar de semana (o de lunes a domingo con un turno
+  // que cruza medianoche) se ofrecía "Fichar entrada" de nuevo y quedaban
+  // dos entradas abiertas.
+  const [miFichajeAbierto, setMiFichajeAbierto] = useState(null);
+  const [errorFichaje, setErrorFichaje] = useState(null);
+
+  async function cargarMiFichajeAbierto() {
+    if (!negocio || !miAuthId) return;
+    const { data } = await supabase
+      .from('fichajes')
+      .select('*')
+      .eq('negocio_id', negocio.id)
+      .eq('usuario_id', miAuthId)
+      .is('salida', null)
+      .order('entrada', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setMiFichajeAbierto(data || null);
+  }
+
+  useEffect(() => {
+    cargarMiFichajeAbierto();
+  }, [negocio, miAuthId, fichajesSemana]);
 
   async function fichar() {
     setFichando(true);
-    if (miFichajeAbierto) {
-      await supabase.from('fichajes').update({ salida: new Date().toISOString() }).eq('id', miFichajeAbierto.id);
-    } else {
-      await supabase.from('fichajes').insert({ negocio_id: negocio.id, usuario_id: miAuthId });
-    }
+    setErrorFichaje(null);
+    const { error } = miFichajeAbierto
+      ? await supabase
+          .from('fichajes')
+          .update({ salida: new Date().toISOString() })
+          .eq('id', miFichajeAbierto.id)
+          .is('salida', null)
+      : await supabase.from('fichajes').insert({ negocio_id: negocio.id, usuario_id: miAuthId });
+    if (error) setErrorFichaje('No se pudo registrar el fichaje. Probá de nuevo.');
     setFichando(false);
     cargarSemana();
+    cargarMiFichajeAbierto();
   }
 
   return (
@@ -132,6 +160,8 @@ export default function Jornadas() {
           {fichando ? 'Guardando…' : miFichajeAbierto ? `Fichar salida (entró ${horaCorta(miFichajeAbierto.entrada)})` : 'Fichar entrada'}
         </button>
       </div>
+
+      {errorFichaje && <p className="text-sm text-danger">{errorFichaje}</p>}
 
       <p className="rounded-xl bg-accent-soft px-3 py-2 text-xs text-accent">
         Comparación entre el horario de referencia de cada persona (cargado en Equipo) y el fichaje real de esta

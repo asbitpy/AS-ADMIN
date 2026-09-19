@@ -170,6 +170,9 @@ async function continuar({ entrada, clasificacion, negocio, cliente, conversacio
       if (!variante) return false;
       const productos = await cargarProductos(negocio.id);
       const producto = productos.find((p) => p.id === variante.producto_id);
+      // La variante se busca solo por id: si el producto no es de ESTE
+      // negocio, un cliente podía ver datos de una variante ajena.
+      if (!producto) return false;
 
       await guardarContexto(conversacion.id, {
         flujo: 'pedido',
