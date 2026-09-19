@@ -6,6 +6,7 @@ import { useRealtimeTick } from '../lib/realtime';
 import { urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
+import { descargarPDF } from '../lib/pdf';
 
 // Mismo criterio que Productos.jsx: un monto de más de 7 cifras no entra
 // en un tercio de pantalla, así que se abrevia en millones.
@@ -291,6 +292,30 @@ export default function Ventas() {
     URL.revokeObjectURL(url);
   }
 
+  async function exportarVentasPDF() {
+    const ordenadas = [...ventasFiltradas].sort((a, b) => a.creado_en.localeCompare(b.creado_en));
+    const hora = new Intl.DateTimeFormat('es-PY', { timeZone: 'America/Asuncion', hour: '2-digit', minute: '2-digit', hour12: false });
+    const totalGeneral = ordenadas.filter((v) => v.estado === 'completada').reduce((a, v) => a + Number(v.total), 0);
+    await descargarPDF({
+      titulo: `Ventas — ${negocio.nombre}`,
+      subtitulo: `Período: ${periodo}`,
+      encabezados: ['Fecha', 'Hora', 'Cliente', 'Canal', 'Método de pago', 'Estado', 'Total (Gs.)', 'Vendedor'],
+      filas: ordenadas.map((v) => [
+        fechaDDMMYYYY(v.creado_en),
+        hora.format(new Date(v.creado_en)),
+        v.cliente?.nombre || 'Sin registrar',
+        CANAL_LABEL[v.canal] || v.canal,
+        v.metodo_pago ? METODOS_LABEL[v.metodo_pago] || v.metodo_pago : 'Dividido',
+        v.estado === 'completada' ? 'Completada' : v.estado === 'reservada' ? 'Pendiente de retiro' : 'Anulada',
+        Number(v.total).toLocaleString('es-PY'),
+        nombreVendedor(v.usuario_id),
+      ]),
+      totales: ['TOTAL', '', `${ordenadas.length} ventas`, '', '', '', totalGeneral.toLocaleString('es-PY'), ''],
+      columnasNumericas: [6],
+      nombreArchivo: `ventas_${periodo}_${new Date().toISOString().slice(0, 10)}.pdf`,
+    });
+  }
+
   if (ventaAbierta) {
     return (
       <div className="space-y-4">
@@ -384,6 +409,11 @@ export default function Ventas() {
             >
               <Download size={12} /> Exportar CSV
             </button>
+            {esEscritorio && (
+              <button onClick={exportarVentasPDF} className="flex items-center gap-1 text-xs font-medium text-accent">
+                <Download size={12} /> Exportar PDF
+              </button>
+            )}
           </>
         )}
       </div>

@@ -125,7 +125,7 @@ Pendiente para cerrar la Fase 1:
 - [x] Detalle de cada movimiento financiero individual (no solo el total por categoría) + comprobante adjunto (mismo bucket privado que las ventas) + quién lo cargó (`registrado_por`)
 - [x] Gastos fijos mensuales (alquiler, luz, agua...): se definen una vez y Finanzas recuerda confirmarlos el día que corresponde — **nunca se cargan solos**, siempre los confirma una persona (mismo criterio que los comprobantes). Migración `018_gastos_fijos.sql`, componente `GastosFijos.jsx`
 - [x] Top de servicios/productos más vendidos ("Lo más vendido", top 5 por cantidad)
-- [x] Exportar a CSV (se abre bien en Excel/Sheets) — PDF queda pendiente, necesitaría sumar una librería nueva al panel
+- [x] Exportar a CSV (se abre bien en Excel/Sheets) y a **PDF** (escritorio: Ventas y Movimientos de Finanzas, con jsPDF cargado recién al tocar el botón)
 - [x] Resumen semanal proactivo al dueño ("esta semana facturaste X") — `backend/lib/resumenSemanal.js`, los lunes en horario comercial; falta correr `020_resumen_semanal.sql` y dar de alta + esperar aprobación de Meta de la plantilla (`template_resumen_semanal`)
 - [x] Flujo de caja **proyectado** ("Lo que se viene": pedidos reservados por cobrar, créditos por cobrar, gastos fijos del mes sin confirmar)
 - [x] Comparación vs. período anterior en los 3 números principales (Ingresos/Egresos/Neto)
@@ -176,12 +176,12 @@ Pendiente para cerrar la Fase 1:
 - [x] Panel: pantalla de POS (`Venta.jsx`) — búsqueda/escaneo, carrito, pago simple o dividido, `fn_crear_venta()` atómica (precio de servidor + descuento de stock, todo o nada)
 - [x] Panel: apertura y cierre de caja con arqueo (`CajaBar.jsx`)
 - [x] Panel: comprobante de pago adjunto a la venta (respaldo, nunca verificación automática — ver la nota en sección 6)
-- [ ] Definir `modulos_activos` al dar de alta un negocio desde una UI (por ahora se activa a mano en Supabase)
+- [x] Definir `modulos_activos` al dar de alta un negocio desde una UI (`/asbit/negocios`: checkboxes de módulos + plan, y presets por tipo de negocio — consultorio, peluquería, tienda, gastronomía, mixto — que completan rubro y módulos con un clic)
 - [x] Panel: vista "Hoy" propia para negocios retail (`HoyRetail.jsx`) — resumen del día, caja, alertas de stock/conversaciones, últimas ventas
 - [ ] Reporte de productos más vendidos
 - [ ] Decidir el alcance de lector de código de barras (USB primero; cámara del celular, después)
 - [ ] Usuarios multiusuario con roles y permisos más finos (hoy existen los roles base de la migración 011; falta UI para permisos por excepción)
-- [x] Créditos de clientes: seguimiento de deuda desde el panel (ficha del cliente en Clientes) — registrar crédito manual y marcar pagado. Todavía no está conectado a "vender a crédito" desde el POS (`Venta.jsx` no ofrece 'credito' como método de pago) — eso sigue pendiente si hace falta
+- [x] Créditos de clientes: seguimiento de deuda desde el panel (ficha del cliente en Clientes) — registrar crédito manual y marcar pagado. **Ya conectado al POS (escritorio):** `Venta.jsx` ofrece "Crédito" como método (también dividido), exige el teléfono del cliente, deja fecha de vencimiento opcional y anota la deuda en `creditos_clientes` ligada a la venta
 
 ## 11. Bot de WhatsApp retail (ver `AS_ADMIN_bot_whatsapp_v3_retail_inventario.md` para el detalle de diseño)
 

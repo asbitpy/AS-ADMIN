@@ -8,6 +8,7 @@ import { subirComprobanteMovimiento, urlComprobante } from '../lib/storage';
 import MetricPill from '../components/MetricPill';
 import GastosFijos from '../components/GastosFijos';
 import { useEsEscritorio } from '../hooks/useEsEscritorio';
+import { descargarPDF } from '../lib/pdf';
 
 const PERIODOS = [
   { id: 'hoy', label: 'Hoy' },
@@ -705,6 +706,32 @@ export default function Finanzas() {
     URL.revokeObjectURL(url);
   }
 
+  async function exportarPDF() {
+    const ordenados = [...movimientosFiltrados].sort(
+      (a, b) => a.fecha.localeCompare(b.fecha) || (a.creado_en || '').localeCompare(b.creado_en || '')
+    );
+    const totalIngresos = ordenados.filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.monto), 0);
+    const totalEgresos = ordenados.filter((m) => m.tipo === 'egreso').reduce((a, m) => a + Number(m.monto), 0);
+    await descargarPDF({
+      titulo: `Finanzas — ${negocio.nombre}`,
+      subtitulo: `Período: ${periodo}`,
+      encabezados: ['Fecha', 'Día', 'Categoría', 'Ingreso (Gs.)', 'Egreso (Gs.)', 'Notas', 'Origen', 'Cargado por'],
+      filas: ordenados.map((m) => [
+        fechaDDMMYYYY(m.fecha),
+        nombreDiaISO(m.fecha),
+        etiquetaCategoria(m.categoria),
+        m.tipo === 'ingreso' ? Number(m.monto).toLocaleString('es-PY') : '',
+        m.tipo === 'egreso' ? Number(m.monto).toLocaleString('es-PY') : '',
+        m.notas || '',
+        m.origen === 'manual' ? 'Cargado a mano' : 'Automático',
+        nombreDeUsuario(m.registrado_por),
+      ]),
+      totales: ['TOTAL', `${ordenados.length} mov.`, '', totalIngresos.toLocaleString('es-PY'), totalEgresos.toLocaleString('es-PY'), '', '', ''],
+      columnasNumericas: [3, 4],
+      nombreArchivo: `finanzas_${periodo}_${new Date().toISOString().slice(0, 10)}.pdf`,
+    });
+  }
+
   async function verComprobanteDetalle(ruta) {
     setCargandoComprobanteDetalle(true);
     try {
@@ -1153,6 +1180,11 @@ export default function Finanzas() {
               <button onClick={exportarCSV} className="flex items-center gap-1 text-xs font-medium text-accent">
                 <Download size={12} /> Exportar CSV
               </button>
+              {esEscritorio && (
+                <button onClick={exportarPDF} className="flex items-center gap-1 text-xs font-medium text-accent">
+                  <Download size={12} /> Exportar PDF
+                </button>
+              )}
             </div>
 
             {esEscritorio && movimientosFiltrados.length === 0 && (

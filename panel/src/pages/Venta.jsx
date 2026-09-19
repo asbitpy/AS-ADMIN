@@ -15,10 +15,14 @@ const METODOS = [
   { id: 'tarjeta', label: 'Tarjeta' },
   { id: 'qr', label: 'QR' },
 ];
+// Solo escritorio (función nueva, el celular no se toca): vender fiado.
+const METODO_CREDITO = { id: 'credito', label: 'Crédito' };
 
 export default function Venta() {
   const { negocio } = useAuth();
   const { esEscritorio } = useEsEscritorio();
+  const metodos = esEscritorio ? [...METODOS, METODO_CREDITO] : METODOS;
+  const [vencimientoCredito, setVencimientoCredito] = useState('');
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
@@ -200,6 +204,13 @@ export default function Venta() {
   // Vuelto: cuánto entrega el cajero menos el total — solo tiene
   // sentido en efectivo y con un solo método (si se divide, cada monto
   // ya es exacto por definición).
+  // Lo que queda debiendo el cliente: el pago único a crédito es el total,
+  // y al dividir es la suma de las líneas marcadas como crédito.
+  const montoCredito = dividido
+    ? pagos.filter((p) => p.metodo === 'credito').reduce((acc, p) => acc + (Number(p.monto) || 0), 0)
+    : pagos[0].metodo === 'credito'
+    ? subtotal
+    : 0;
   const pagaEnEfectivo = !dividido && pagos[0].metodo === 'efectivo';
   const vuelto = pagaEnEfectivo && montoRecibido !== '' ? Number(montoRecibido) - subtotal : null;
 
@@ -218,7 +229,7 @@ export default function Venta() {
       // reparte entre los dos.
       const base = prev.length === 1 ? [{ ...prev[0], monto: String(subtotal) }] : prev;
       const usados = new Set(base.map((p) => p.metodo));
-      const siguiente = METODOS.find((m) => !usados.has(m.id))?.id || METODOS[0].id;
+      const siguiente = metodos.find((m) => !usados.has(m.id))?.id || metodos[0].id;
       return [...base, { id: idPagoRef.current++, metodo: siguiente, monto: '' }];
     });
   }
@@ -264,6 +275,10 @@ export default function Venta() {
           ? `Todavía falta cobrar Gs. ${diferenciaPagos.toLocaleString('es-PY')}.`
           : `Los pagos suman Gs. ${Math.abs(diferenciaPagos).toLocaleString('es-PY')} de más.`
       );
+      return;
+    }
+    if (montoCredito > 0 && !telefonoCliente.trim()) {
+      setError('Para vender a crédito cargá el teléfono del cliente (F3): hay que saber quién queda debiendo.');
       return;
     }
     cobrandoRef.current = true;
@@ -315,6 +330,24 @@ export default function Venta() {
         }
       }
 
+      // Crédito: deja constancia de la deuda en Clientes (la misma tabla
+      // que ya usa "Registrar crédito"). Va aparte de la venta: si falla,
+      // la venta ya está cobrada y hay que avisarlo para cargarla a mano.
+      if (montoCredito > 0 && clienteId) {
+        const { error: errCred } = await supabase.from('creditos_clientes').insert({
+          negocio_id: negocio.id,
+          cliente_id: clienteId,
+          venta_id: ventaId,
+          monto: montoCredito,
+          saldo_pendiente: montoCredito,
+          fecha_vencimiento: vencimientoCredito || null,
+        });
+        if (errCred) {
+          console.error('Error registrando el crédito:', errCred);
+          avisoComp = (avisoComp ? avisoComp + ' ' : '') + 'La venta se registró, pero NO se pudo anotar la deuda del cliente: cargala a mano en Clientes.';
+        }
+      }
+
       // Mostramos el total que quedó registrado, no el que calculó el
       // navegador: si un precio cambió recién, manda el del servidor.
       const { data: venta } = await supabase
@@ -331,6 +364,7 @@ export default function Venta() {
       setPagos([{ id: idPagoRef.current++, metodo: 'efectivo', monto: '' }]);
       setComprobante(null);
       setMontoRecibido('');
+      setVencimientoCredito('');
       cargarProductos(); // refresca stock mostrado
     } catch (err) {
       console.error(err);
@@ -558,7 +592,7 @@ export default function Venta() {
           {!dividido ? (
             <>
               <div className="flex gap-2">
-                {METODOS.map((m) => (
+                {metodos.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => cambiarMetodoPago(pagos[0].id, m.id)}
@@ -607,7 +641,7 @@ export default function Venta() {
                     onChange={(e) => cambiarMetodoPago(p.id, e.target.value)}
                     className="flex-1 rounded-lg border border-line bg-base px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-accent"
                   >
-                    {METODOS.map((m) => (
+                    {metodos.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.label}
                       </option>
@@ -633,7 +667,7 @@ export default function Venta() {
               ))}
 
               <div className="flex items-center justify-between pt-1">
-                {pagos.length < METODOS.length ? (
+                {pagos.length < metodos.length ? (
                   <button type="button" onClick={agregarMetodoPago} className="text-xs font-medium text-accent">
                     + Agregar otro método
                   </button>
@@ -648,6 +682,20 @@ export default function Venta() {
                     : `Sobra Gs. ${Math.abs(diferenciaPagos).toLocaleString('es-PY')}`}
                 </p>
               </div>
+            </div>
+          )}
+
+          {montoCredito > 0 && (
+            <div className="flex items-center gap-2 rounded-xl bg-surface p-3 shadow-card">
+              <span className="flex-1 text-xs text-muted">
+                Queda debiendo Gs. {montoCredito.toLocaleString('es-PY')} — vence (opcional)
+              </span>
+              <input
+                type="date"
+                value={vencimientoCredito}
+                onChange={(e) => setVencimientoCredito(e.target.value)}
+                className="rounded-lg border border-line bg-base px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-accent"
+              />
             </div>
           )}
 

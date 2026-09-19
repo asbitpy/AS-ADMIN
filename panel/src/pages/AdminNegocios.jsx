@@ -18,6 +18,16 @@ const MODULOS = [
   { id: 'ecommerce', label: 'Catálogo ecommerce' },
 ];
 
+// Atajos para dar de alta rápido: un clic completa rubro y módulos típicos
+// de ese tipo de negocio (después se pueden ajustar a mano).
+const PRESETS = [
+  { id: 'salud', label: 'Consultorio / salud', rubro: 'Consultorio', modulos: ['agenda'] },
+  { id: 'belleza', label: 'Peluquería / barbería', rubro: 'Peluquería', modulos: ['agenda', 'pos'] },
+  { id: 'tienda', label: 'Tienda / retail', rubro: 'Tienda', modulos: ['pos', 'inventario', 'ecommerce'] },
+  { id: 'gastro', label: 'Gastronomía', rubro: 'Gastronomía', modulos: ['pos', 'inventario'] },
+  { id: 'mixto', label: 'Servicios + venta', rubro: 'Servicios y productos', modulos: ['agenda', 'pos', 'inventario'] },
+];
+
 const PLANES = [
   { id: 'basico', label: 'Básico' },
   { id: 'negocio', label: 'Negocio' },
@@ -342,6 +352,11 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
     setModulos((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
   }
 
+  function aplicarPreset(p) {
+    setRubro(p.rubro);
+    setModulos(p.modulos);
+  }
+
   async function guardar(e) {
     e.preventDefault();
     setError(null);
@@ -451,6 +466,26 @@ function NuevoNegocioModal({ onCerrar, onCreado }) {
         </p>
 
         <form onSubmit={guardar} className="mt-3 space-y-3">
+          <div>
+            <label className="text-xs text-muted">Tipo de negocio (completa rubro y módulos)</label>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => {
+                const activo = rubro === p.rubro && p.modulos.length === modulos.length && p.modulos.every((m) => modulos.includes(m));
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => aplicarPreset(p)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                      activo ? 'bg-accent text-accent-ink' : 'bg-base text-muted'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <input
             placeholder="Nombre del negocio"
             value={nombre}
