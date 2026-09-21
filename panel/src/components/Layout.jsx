@@ -134,9 +134,18 @@ export default function Layout() {
           esEscritorio ? 'flex' : 'hidden'
         }`}
       >
-        <div className="px-5 pb-3 pt-5">
-          <p className="text-xs text-muted">AS ADMIN{!esDueno ? ` · ${ETIQUETAS_ROL[rol] || rol}` : ''}</p>
-          <h1 className="truncate font-display text-lg font-semibold text-ink">{negocio?.nombre}</h1>
+        <div className="flex items-center gap-3 px-5 pb-3 pt-5">
+          {negocio?.config?.logo_url && (
+            <img
+              src={negocio.config.logo_url}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-lg bg-base object-contain"
+            />
+          )}
+          <div className="min-w-0">
+            <p className="text-xs text-muted">AS ADMIN{!esDueno ? ` · ${ETIQUETAS_ROL[rol] || rol}` : ''}</p>
+            <h1 className="truncate font-display text-lg font-semibold text-ink">{negocio?.nombre}</h1>
+          </div>
         </div>
 
         {/* Con 4 grupos y más de 15 enlaces (Conversaciones/Jornadas/

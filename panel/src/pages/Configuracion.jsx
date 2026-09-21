@@ -3,6 +3,7 @@ import { BookOpen, ChevronRight, Download, Plus, Trash2, Check } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { normalizarSitioWeb } from '../lib/url';
+import { subirLogoNegocio } from '../lib/storage';
 import HorariosAtencion from '../components/HorariosAtencion';
 import { PALETA_ACCENT, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
@@ -38,6 +39,8 @@ export default function Configuracion() {
   const [guardandoNombreDueno, setGuardandoNombreDueno] = useState(false);
   const [guardandoAlertas, setGuardandoAlertas] = useState(false);
   const [guardandoSitio, setGuardandoSitio] = useState(false);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
+  const [errorLogo, setErrorLogo] = useState(null);
   const [mensajeSitio, setMensajeSitio] = useState(null); // { tipo: 'ok' | 'error', texto }
 
   const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
@@ -175,6 +178,58 @@ export default function Configuracion() {
     }
 
     setGuardandoColor(false);
+  }
+
+  // Logo del negocio: se muestra en la barra lateral del escritorio. Se
+  // guarda su URL en config.logo_url con el mismo "leer fresco y escribir"
+  // que el color y los horarios, para no pisar otras claves.
+  async function guardarLogoUrl(url) {
+    const { data: fresco, error: errFetch } = await supabase.from('negocios').select('config').eq('id', negocio.id).single();
+    if (errFetch) throw errFetch;
+    const { data, error } = await supabase
+      .from('negocios')
+      .update({ config: { ...(fresco.config || {}), logo_url: url } })
+      .eq('id', negocio.id)
+      .select('id');
+    if (error || !data?.length) throw error || new Error('sin permiso');
+    actualizarConfigLocal({ logo_url: url });
+  }
+
+  async function elegirLogo(e) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo) return;
+    setErrorLogo(null);
+    if (!archivo.type.startsWith('image/')) {
+      setErrorLogo('Elegí una imagen (PNG, JPG o SVG).');
+      return;
+    }
+    if (archivo.size > 1024 * 1024) {
+      setErrorLogo('La imagen pesa más de 1 MB. Probá con una más liviana.');
+      return;
+    }
+    setSubiendoLogo(true);
+    try {
+      const url = await subirLogoNegocio({ negocioId: negocio.id, file: archivo });
+      await guardarLogoUrl(url);
+    } catch (err) {
+      console.error('Error subiendo el logo:', err);
+      setErrorLogo('No se pudo guardar el logo. Probá de nuevo.');
+    } finally {
+      setSubiendoLogo(false);
+    }
+  }
+
+  async function quitarLogo() {
+    setErrorLogo(null);
+    setSubiendoLogo(true);
+    try {
+      await guardarLogoUrl(null);
+    } catch {
+      setErrorLogo('No se pudo quitar el logo. Probá de nuevo.');
+    } finally {
+      setSubiendoLogo(false);
+    }
   }
 
   async function agregarServicio(e) {
@@ -400,6 +455,37 @@ export default function Configuracion() {
                 </button>
               );
             })}
+          </div>
+
+          <div className="mt-5 border-t border-line pt-4">
+            <p className="text-xs text-muted">
+              Logo de tu negocio: aparece arriba de la barra lateral en la versión de computadora. PNG, JPG o SVG,
+              hasta 1 MB, mejor si es cuadrado.
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-base ring-1 ring-line">
+                {negocio?.config?.logo_url ? (
+                  <img src={negocio.config.logo_url} alt="Logo actual" className="h-full w-full object-contain" />
+                ) : (
+                  <span className="text-[10px] text-muted">Sin logo</span>
+                )}
+              </div>
+              <label className="cursor-pointer rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink">
+                {subiendoLogo ? 'Subiendo…' : negocio?.config?.logo_url ? 'Cambiar logo' : 'Subir logo'}
+                <input type="file" accept="image/*" onChange={elegirLogo} disabled={subiendoLogo} className="hidden" />
+              </label>
+              {negocio?.config?.logo_url && (
+                <button
+                  type="button"
+                  onClick={quitarLogo}
+                  disabled={subiendoLogo}
+                  className="text-xs font-medium text-muted disabled:opacity-60"
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+            {errorLogo && <p className="mt-2 text-xs text-danger">{errorLogo}</p>}
           </div>
         </div>
       </section>

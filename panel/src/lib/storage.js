@@ -18,6 +18,22 @@ export async function subirFotoProducto({ negocioId, productoId, file }) {
   return data.publicUrl;
 }
 
+/** Sube el logo del negocio y devuelve su URL pública. El nombre lleva la
+ *  hora para que un logo nuevo nunca se vea con el viejo en caché. */
+export async function subirLogoNegocio({ negocioId, file }) {
+  const extension = (file.name.split('.').pop() || 'png').toLowerCase();
+  const ruta = `${negocioId}/logo-${Date.now()}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from(BUCKET_PRODUCTOS)
+    .upload(ruta, file, { upsert: false, cacheControl: '31536000' });
+
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(BUCKET_PRODUCTOS).getPublicUrl(ruta);
+  return data.publicUrl;
+}
+
 async function subirComprobanteEnRuta(ruta, file) {
   const { error } = await supabase.storage
     .from(BUCKET_COMPROBANTES)
