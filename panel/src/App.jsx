@@ -22,7 +22,7 @@ import AdminNegocios from './pages/AdminNegocios';
 import { useEsEscritorio } from './hooks/useEsEscritorio';
 
 export default function App() {
-  const { session, negocio, cargando, esDueno, puede } = useAuth();
+  const { session, negocio, cargando, esDueno, puede, signOut } = useAuth();
   const { esEscritorio } = useEsEscritorio();
 
   if (cargando) {
@@ -54,14 +54,19 @@ export default function App() {
           equipo de AS BIT ve "No tenés acceso" y nada más. */}
       <Route path="/asbit/negocios" element={<AdminNegocios />} />
 
-      {!negocio ? (
+      {!negocio || negocio.activo === false ? (
         <Route
           path="*"
           element={
-            <div className="flex min-h-screen items-center justify-center bg-base px-6 text-center">
-              <p className="text-sm text-muted">
-                Tu usuario no está vinculado a ningún negocio todavía. Pedile a AS BIT que complete el alta.
+            <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-base px-6 text-center">
+              <p className="max-w-sm text-sm text-muted">
+                {negocio
+                  ? 'Esta cuenta está suspendida. Escribile a AS BIT para reactivarla.'
+                  : 'Tu usuario no está vinculado a ningún negocio todavía. Pedile a AS BIT que complete el alta.'}
               </p>
+              <button onClick={signOut} className="text-xs font-medium text-accent">
+                Cerrar sesión
+              </button>
             </div>
           }
         />

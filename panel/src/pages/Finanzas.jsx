@@ -115,6 +115,10 @@ export default function Finanzas() {
 
   const [periodo, setPeriodo] = useState('semana');
   const [movimientos, setMovimientos] = useState([]);
+  // Supabase entrega como máximo 1000 filas por consulta: si se llega al
+  // tope, los totales y exportaciones del período quedarían incompletos.
+  const TOPE_MOVIMIENTOS = 1000;
+  const [movimientosTruncados, setMovimientosTruncados] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [pendientes, setPendientes] = useState(null);
   const [anterior, setAnterior] = useState(null); // { ingresos, egresos, neto } del período previo
@@ -211,10 +215,11 @@ export default function Finanzas() {
       .gte('fecha', desde)
       .order('fecha', { ascending: false })
       .order('creado_en', { ascending: false })
-      .limit(300);
+      .limit(TOPE_MOVIMIENTOS);
     if (hasta) q = q.lte('fecha', hasta);
     const { data } = await q;
     setMovimientos(data || []);
+    setMovimientosTruncados((data || []).length >= TOPE_MOVIMIENTOS);
     setCargando(false);
   }
 
@@ -1166,6 +1171,12 @@ export default function Finanzas() {
 
         const seccionMovimientos = movimientos.length > 0 && (
           <div key="movimientos" className="space-y-2">
+            {movimientosTruncados && (
+              <p className="rounded-xl bg-amber-soft px-3 py-2 text-xs text-amber">
+                Hay más de {TOPE_MOVIMIENTOS} movimientos en este período y se muestran los más recientes: los totales
+                y las exportaciones no incluyen los anteriores. Elegí un período más corto para verlos todos.
+              </p>
+            )}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted">Movimientos</p>
