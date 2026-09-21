@@ -56,9 +56,20 @@ export default function Layout() {
   // pantalla, al montarse/desmontarse en cada navegación, reseteara y
   // volviera a poner el tamaño, y eso se veía como que la pantalla
   // "saltaba" de tamaño cada vez que se tocaba un panel distinto.
+  // El tamaño ya no es fijo (antes 20px, que en pantallas con zoom de
+  // Windows —125% o 150%— quedaba enorme y la barra lateral no entraba):
+  // depende del ancho real del navegador, 14px en una laptop chica hasta
+  // 16px en un monitor grande.
   useEffect(() => {
-    document.documentElement.style.fontSize = esEscritorio ? '20px' : '';
+    function ajustar() {
+      const ancho = window.innerWidth;
+      const px = ancho >= 1800 ? 16 : ancho >= 1500 ? 15 : 14;
+      document.documentElement.style.fontSize = esEscritorio ? `${px}px` : '';
+    }
+    ajustar();
+    window.addEventListener('resize', ajustar);
     return () => {
+      window.removeEventListener('resize', ajustar);
       document.documentElement.style.fontSize = '';
     };
   }, [esEscritorio]);
