@@ -6,6 +6,13 @@
 <meta name="theme-color" content="#2F6B4F">
 <title>Nutrición — Tienda saludable</title>
 <meta name="description" content="Suplementos, alimentos saludables e infusiones recomendados por tu nutricionista. Pedí por WhatsApp.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Nutrición — Tienda saludable">
+<meta property="og:description" content="Suplementos, alimentos e infusiones recomendados por tu nutricionista. Armá tu pedido y enviálo por WhatsApp.">
+<meta property="og:locale" content="es_PY">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232F6B4F'/%3E%3Ctext x='32' y='45' font-family='Georgia,serif' font-size='40' font-weight='700' text-anchor='middle' fill='white'%3EN%3C/text%3E%3C/svg%3E">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Store","name":"Nutrición","description":"Suplementos, alimentos saludables e infusiones recomendados por tu nutricionista.","address":{"@type":"PostalAddress","streetAddress":"Av. España 1234","addressLocality":"Asunción","addressCountry":"PY"},"openingHours":["Mo-Fr 08:00-12:00","Mo-Fr 15:00-19:00"]}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -178,6 +185,10 @@
 
   const HUES = { 'Suplementos': '#2F6B4F', 'Alimentos saludables': '#B9772A', 'Infusiones': '#5E7F3A', 'Accesorios': '#4C6A82', 'Snacks': '#A4553A' };
   const gs = (n) => 'Gs. ' + Number(n).toLocaleString('es-PY');
+  // Todo texto que viene del catálogo se escapa antes de pintarlo: un
+  // nombre o descripción con código HTML no debe ejecutarse en la página.
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlSegura = (u) => (/^https?:\/\//i.test(u || '') ? esc(u) : '');
   const $ = (id) => document.getElementById(id);
 
   let productos = [];
@@ -237,13 +248,13 @@
       const precioBase = p.variantes.length ? Math.min(...p.variantes.map((v) => v.precio)) : p.precio;
       card.innerHTML = `
         <div class="thumb" style="background: linear-gradient(135deg, ${hue}, color-mix(in srgb, ${hue} 60%, #000));">
-          ${p.foto ? `<img src="${p.foto}" alt="" loading="lazy">` : p.nombre.charAt(0)}
-          <span class="cat">${p.cat}</span>
+          ${urlSegura(p.foto) ? `<img src="${urlSegura(p.foto)}" alt="${esc(p.nombre)}" loading="lazy">` : esc(p.nombre.charAt(0))}
+          <span class="cat">${esc(p.cat)}</span>
         </div>
         <div class="body">
-          <h3>${p.nombre}</h3>
-          <p class="desc">${p.desc || ''}</p>
-          ${p.variantes.length ? `<select aria-label="Opción de ${p.nombre}">${p.variantes.map((v) => `<option value="${v.id}" ${v.enStock ? '' : 'disabled'}>${v.label}${v.enStock ? '' : ' (agotado)'}</option>`).join('')}</select>` : ''}
+          <h3>${esc(p.nombre)}</h3>
+          <p class="desc">${esc(p.desc)}</p>
+          ${p.variantes.length ? `<select aria-label="Opción de ${esc(p.nombre)}">${p.variantes.map((v) => `<option value="${esc(v.id)}" ${v.enStock ? '' : 'disabled'}>${esc(v.label)}${v.enStock ? '' : ' (agotado)'}</option>`).join('')}</select>` : ''}
           <div class="price-row">
             <span class="price">${p.variantes.length ? 'Desde ' : ''}${gs(precioBase)}</span>
             ${p.enStock ? '<button class="add">Agregar</button>' : '<span class="agotado">Agotado</span>'}
@@ -279,7 +290,7 @@
       for (const i of carrito) {
         const d = document.createElement('div');
         d.className = 'line';
-        d.innerHTML = `<div><div class="nm">${i.nombre}</div>${i.opcion ? `<div class="sub">${i.opcion}</div>` : ''}<div class="sub">${gs(i.precio)} c/u</div>
+        d.innerHTML = `<div><div class="nm">${esc(i.nombre)}</div>${i.opcion ? `<div class="sub">${esc(i.opcion)}</div>` : ''}<div class="sub">${gs(i.precio)} c/u</div>
           <div class="qty"><button aria-label="Quitar uno">−</button><span>${i.cant}</span><button aria-label="Agregar uno">+</button></div></div>
           <div class="tot">${gs(i.precio * i.cant)}</div>`;
         const [menos, mas] = d.querySelectorAll('.qty button');
