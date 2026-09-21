@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BookOpen, ChevronRight, Download, Plus, Trash2, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { normalizarSitioWeb } from '../lib/url';
 import HorariosAtencion from '../components/HorariosAtencion';
 import { PALETA_ACCENT, ACCENT_POR_DEFECTO } from '../lib/temaAccent';
 
@@ -37,6 +38,7 @@ export default function Configuracion() {
   const [guardandoNombreDueno, setGuardandoNombreDueno] = useState(false);
   const [guardandoAlertas, setGuardandoAlertas] = useState(false);
   const [guardandoSitio, setGuardandoSitio] = useState(false);
+  const [mensajeSitio, setMensajeSitio] = useState(null); // { tipo: 'ok' | 'error', texto }
 
   const tieneEcommerce = (negocio?.modulos_activos || []).includes('ecommerce');
   const tieneAgenda = (negocio?.modulos_activos || []).includes('agenda');
@@ -122,9 +124,33 @@ export default function Configuracion() {
   }
 
   async function guardarSitioWeb() {
+    setMensajeSitio(null);
+    const { url, error: errUrl } = normalizarSitioWeb(sitioWeb);
+    if (errUrl) {
+      setMensajeSitio({ tipo: 'error', texto: errUrl });
+      return;
+    }
+
     setGuardandoSitio(true);
-    await supabase.from('negocios').update({ sitio_web_url: sitioWeb || null }).eq('id', negocio.id);
+    const { data, error } = await supabase
+      .from('negocios')
+      .update({ sitio_web_url: url })
+      .eq('id', negocio.id)
+      .select('sitio_web_url');
     setGuardandoSitio(false);
+
+    // Sin error pero sin filas: la base rechazó el cambio en silencio (por
+    // ejemplo por falta de permiso) — no lo damos por guardado.
+    if (error || !data?.length) {
+      setMensajeSitio({ tipo: 'error', texto: 'No se pudo guardar. Probá de nuevo o avisale a AS BIT.' });
+      return;
+    }
+    setSitioWeb(url || '');
+    actualizarNegocioLocal({ sitio_web_url: url });
+    setMensajeSitio({
+      tipo: 'ok',
+      texto: url ? 'Guardado. El bot va a compartir este link cuando un cliente pida el catálogo o la ubicación.' : 'Sin sitio web guardado.',
+    });
   }
 
   async function elegirColorAcento(id) {
@@ -393,22 +419,43 @@ export default function Configuracion() {
             </p>
           )}
 
-          <label className="mt-3 block text-xs text-muted">Link de tu tienda online (si tenés)</label>
+          <label className="mt-3 block text-xs text-muted">Sitio web o tienda online (si tenés)</label>
           <div className="mt-1 flex gap-2">
             <input
-              placeholder="https://tutienda.com.py"
+              placeholder="tutienda.com.py"
               value={sitioWeb}
-              onChange={(e) => setSitioWeb(e.target.value)}
+              onChange={(e) => {
+                setSitioWeb(e.target.value);
+                setMensajeSitio(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && guardarSitioWeb()}
               className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
             />
+            {negocio?.sitio_web_url && (
+              <a
+                href={negocio.sitio_web_url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center rounded-lg border border-line px-3 py-2 text-xs font-medium text-accent"
+              >
+                Abrir
+              </a>
+            )}
             <button
               onClick={guardarSitioWeb}
               disabled={guardandoSitio}
               className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-60"
             >
-              Guardar
+              {guardandoSitio ? 'Guardando…' : 'Guardar'}
             </button>
           </div>
+          {mensajeSitio && (
+            <p className={`mt-2 text-xs ${mensajeSitio.tipo === 'ok' ? 'text-accent' : 'text-danger'}`}>{mensajeSitio.texto}</p>
+          )}
+          <p className="mt-2 text-[11px] text-muted">
+            Podés escribir solo el dominio (sin https://). Cuando un cliente le pida al bot el catálogo o la
+            ubicación, el bot le manda este link para que vea todo y arme su pedido.
+          </p>
         </div>
       </section>
 

@@ -342,7 +342,7 @@ async function enrutarEntrada({ entrada, negocio, cliente, conversacion, esNueva
 
     case 'ver_catalogo': {
       const productos = productosYaCargados || (await obtenerProductos(negocio.id));
-      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeCatalogo(productos), intencion);
+      return responderTexto(negocio.wa, conversacion.id, to, respuestas.mensajeCatalogo(productos, negocio), intencion);
     }
 
     case 'consultar_stock':

@@ -23,7 +23,8 @@ function mensajePrecios(servicios) {
 
 function mensajeUbicacion(negocio) {
   const horarios = negocio.config?.horarios_texto || 'consultanos el horario';
-  return `📍 Estamos en ${negocio.direccion}\n🕐 ${horarios}\n\n${negocio.mapa_url || ''}`.trim();
+  const web = negocio.sitio_web_url ? `\n🌐 ${negocio.sitio_web_url}` : '';
+  return `📍 Estamos en ${negocio.direccion}\n🕐 ${horarios}${web}\n\n${negocio.mapa_url || ''}`.trim();
 }
 
 function mensajeDerivadoHumano() {
@@ -80,12 +81,17 @@ function sinTurnoProximo() {
   return 'No encontré un turno próximo a tu nombre 🤔 ¿Querés agendar uno?';
 }
 
-function mensajeCatalogo(productos) {
+function mensajeCatalogo(productos, negocio = null) {
   if (!productos.length) return 'Todavía no tengo el catálogo cargado, ya le aviso al equipo 🙌';
   const lineas = productos.map(
     (p) => `🔹 ${p.nombre} - Gs. ${Number(p.precio).toLocaleString('es-PY')}`
   );
-  return `Esto es lo que tenemos:\n\n${lineas.join('\n')}\n\n¿Te interesa alguno? Decime el nombre y te digo si hay stock.`;
+  // Si el negocio tiene sitio web/tienda, se lo pasamos: ahí ve fotos y arma
+  // el pedido completo sin tener que escribir producto por producto.
+  const web = negocio?.sitio_web_url
+    ? `\n\n🌐 También podés ver todo y armar tu pedido en nuestra web: ${negocio.sitio_web_url}`
+    : '';
+  return `Esto es lo que tenemos:\n\n${lineas.join('\n')}${web}\n\n¿Te interesa alguno? Decime el nombre y te digo si hay stock.`;
 }
 
 function productoNoEncontrado() {
